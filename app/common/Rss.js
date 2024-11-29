@@ -190,8 +190,8 @@ class Rss {
 
   reloadRssRule () {
     logger.info('重新载入 Rss 规则', this.alias);
-    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1));
-    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1));
+    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
+    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
   }
 
   reloadPush () {

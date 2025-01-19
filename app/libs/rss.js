@@ -136,8 +136,7 @@ const _getTorrentsPuTao = async function (rssUrl) {
     const matchResult = size?.match(/(\d*\.\d*|\d*) (GB|MB|TB|KB)/);
     if (matchResult) {
       torrent.size = parseFloat(matchResult[1]) * map[matchResult[2]];
-    }
-    else {
+    } else {
       torrent.size = 0;
     }
     torrent.name = items[i].title[0];

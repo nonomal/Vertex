@@ -1,8 +1,13 @@
 const crypto = require('crypto');
+const path = require('path');
 const util = require('../libs/util');
 const redis = require('../libs/redis');
 const logger = require('../libs/logger');
 const parser = require('xml2js').parseString;
+
+const OpenApiMod = require('./OpenApiMod');
+
+const openApiMod = new OpenApiMod();
 
 const parseXml = util.promisify(parser);
 
@@ -27,55 +32,219 @@ PKCS7Encoder.encode = function (text) {
 
 const getAddWishRawObject = function () {
   return {
-    view: {
-      external_id: 'add_wish' + util.uuid.v4(),
-      title: {
-        type: 'plain_text',
-        text: '添加想看'
-      },
-      submit: {
-        type: 'plain_text',
-        text: '提交'
-      },
-      blocks: [
-        {
-          type: 'input',
-          block_id: 'douban_account',
-          element: {
-            type: 'static_select',
-            options: Object.keys(global.runningDouban).map(item => {
-              return {
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '添加想看',
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '添加想看',
+              emoji: true
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'douban_account|' + util.uuid.v4(),
+            element: {
+              type: 'static_select',
+              options: Object.keys(global.runningDouban).map(item => {
+                return {
+                  text: {
+                    type: 'plain_text',
+                    text: global.runningDouban[item].alias,
+                    emoji: true
+                  },
+                  value: global.runningDouban[item].id
+                };
+              }),
+              action_id: 'douban_account'
+            },
+            label: {
+              type: 'plain_text',
+              text: '选择订阅任务',
+              emoji: true
+            }
+          }, {
+            type: 'input',
+            block_id: 'media_name|' + util.uuid.v4(),
+            label: {
+              type: 'plain_text',
+              text: '影视剧名',
+              emoji: true
+            },
+            element: {
+              type: 'plain_text_input',
+              action_id: 'media_name'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '提交',
+                  emoji: true
+                },
+                value: 'add_wish',
+                action_id: 'add_wish'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+};
+
+const getRefreshWishRawObject = function () {
+  return {
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '刷新想看',
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '刷新想看',
+              emoji: true
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'wish_id|' + util.uuid.v4(),
+            element: {
+              type: 'static_select',
+              options: Object.keys(global.runningDouban).map(item => {
+                return global.runningDouban[item].wishes
+                  .filter(subitem => !subitem.downloaded)
+                  .map(subitem => ({
+                    text: {
+                      type: 'plain_text',
+                      text: global.runningDouban[item].alias + '-' + subitem.name,
+                      emoji: true
+                    },
+                    value: global.runningDouban[item].id + '|' + subitem.id
+                  }));
+              }).flat(),
+              action_id: 'wish_id'
+            },
+            label: {
+              type: 'plain_text',
+              text: '选择订阅项目',
+              emoji: true
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '提交',
+                  emoji: true
+                },
+                value: 'refresh_wish',
+                action_id: 'refresh_wish'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+};
+
+const getRefreshSubscribeRawObject = function () {
+  return {
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '刷新订阅任务',
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '刷新订阅任务',
+              emoji: true
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'subscribe_id|' + util.uuid.v4(),
+            element: {
+              type: 'static_select',
+              options: Object.keys(global.runningDouban).map(item => ({
                 text: {
                   type: 'plain_text',
                   text: global.runningDouban[item].alias,
                   emoji: true
                 },
                 value: global.runningDouban[item].id
-              };
-            }),
-            action_id: 'douban_account'
+              })),
+              action_id: 'subscribe_id'
+            },
+            label: {
+              type: 'plain_text',
+              text: '选择订阅任务',
+              emoji: true
+            }
           },
-          label: {
-            type: 'plain_text',
-            text: '选择订阅任务',
-            emoji: true
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '提交',
+                  emoji: true
+                },
+                value: 'refresh_subscribe',
+                action_id: 'refresh_subscribe'
+              }
+            ]
           }
-        }, {
-          type: 'input',
-          block_id: 'media_name',
-          label: {
-            type: 'plain_text',
-            text: '影视剧名',
-            emoji: true
+        ]
+      }
+    ]
+  };
+};
+
+const getSiteInfoRawObject = async function () {
+  return {
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '站点数据',
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '站点数据',
+              emoji: true
+            }
           },
-          element: {
-            type: 'plain_text_input',
-            action_id: 'media_name'
+          {
+            type: 'divider'
+          },
+          {
+            type: 'image',
+            image_url: await openApiMod.siteInfo({ retUrl: true }),
+            alt_text: '站点数据'
           }
-        }
-      ],
-      type: 'modal'
-    }
+        ]
+      }
+    ]
   };
 };
 
@@ -83,10 +252,9 @@ const getSelectMediaRaw = function (result, douban) {
   const sName = global.runningDouban[douban].alias;
   const list = [];
   for (const r of result) {
-    logger.info(r);
     list.push({
       type: 'image',
-      image_url: r.poster,
+      image_url: `https://image.vertex-app.top/api/image/cut/0.425/${path.basename(r.poster)}/${encodeURIComponent(r.poster)}`,
       alt_text: r.title
     });
     list.push({
@@ -101,168 +269,183 @@ const getSelectMediaRaw = function (result, douban) {
     });
   }
   return {
-    view: {
-      external_id: 'select_wish' + util.uuid.v4(),
-      private_metadata: douban,
-      title: {
-        type: 'plain_text',
-        text: '选择想看项目'
-      },
-      submit: {
-        type: 'plain_text',
-        text: '提交'
-      },
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'plain_text',
-            text: `订阅任务: ${sName}, 共搜到以下 ${result.length} 个内容`,
-            emoji: true
-          }
-        },
-        {
-          type: 'divider'
-        },
-        ...list,
-        {
-          type: 'input',
-          block_id: 'wish_select',
-          element: {
-            type: 'static_select',
-            placeholder: {
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '添加想看-' + sName,
+        blocks: [
+          {
+            type: 'header',
+            text: {
+              type: 'plain_text',
+              text: '添加想看' + sName,
+              emoji: true
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'plain_text',
+              text: `订阅任务: ${sName}, 共搜到以下 ${result.length} 个内容`,
+              emoji: true
+            }
+          },
+          {
+            type: 'divider'
+          },
+          ...list,
+          {
+            type: 'input',
+            block_id: 'wish_select|' + douban + '|' + util.uuid.v4(),
+            element: {
+              type: 'static_select',
+              placeholder: {
+                type: 'plain_text',
+                text: '选择想看项目',
+                emoji: true
+              },
+              options: result.map(item => {
+                return {
+                  text: {
+                    type: 'plain_text',
+                    text: item.title,
+                    emoji: true
+                  },
+                  value: item.id
+                };
+              }),
+              action_id: 'wish_select'
+            },
+            label: {
               type: 'plain_text',
               text: '选择想看项目',
               emoji: true
-            },
-            options: result.map(item => {
-              return {
-                text: {
-                  type: 'plain_text',
-                  text: item.title,
-                  emoji: true
-                },
-                value: item.id
-              };
-            }),
-            action_id: 'wish_select'
+            }
           },
-          label: {
-            type: 'plain_text',
-            text: '选择想看项目',
-            emoji: true
-          }
-        },
-        {
-          type: 'input',
-          block_id: 'tag_select',
-          element: {
-            type: 'static_select',
-            placeholder: {
+          {
+            type: 'input',
+            block_id: 'tag_select|' + util.uuid.v4(),
+            element: {
+              type: 'static_select',
+              placeholder: {
+                type: 'plain_text',
+                text: '选择标签',
+                emoji: true
+              },
+              options: Object.keys(global.runningDouban[douban].categories).map(item => {
+                return {
+                  text: {
+                    type: 'plain_text',
+                    text: item,
+                    emoji: true
+                  },
+                  value: item
+                };
+              }),
+              action_id: 'tag_select'
+            },
+            label: {
               type: 'plain_text',
               text: '选择标签',
               emoji: true
-            },
-            options: Object.keys(global.runningDouban[douban].categories).map(item => {
-              return {
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
                 text: {
                   type: 'plain_text',
-                  text: item,
+                  text: '提交',
                   emoji: true
                 },
-                value: item
-              };
-            }),
-            action_id: 'tag_select'
-          },
-          label: {
-            type: 'plain_text',
-            text: '选择标签',
-            emoji: true
+                value: 'select_wish',
+                action_id: 'select_wish'
+              }
+            ]
           }
-        }
-      ],
-      type: 'modal'
-    }
+        ]
+      }
+    ]
   };
 };
 
 const getNoneResultRaw = function () {
   return {
-    view: {
-      title: {
-        type: 'plain_text',
-        text: '没有搜索结果',
-        emoji: true
-      },
-      type: 'modal',
-      close: {
-        type: 'plain_text',
-        text: '取消',
-        emoji: true
-      },
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'plain_text',
-            text: '没有搜索到结果',
-            emoji: true
+    attachments: [
+      {
+        color: util.randomColor(),
+        fallback: '没有搜索到结果',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'plain_text',
+              text: '没有搜索到结果',
+              emoji: true
+            }
           }
-        }
-      ]
-    }
+        ]
+      }
+    ]
   };
 };
 
 class WebhookMod {
   async handleSlackShortCuts (id, event) {
-    if (id === 'add_wish') {
-      const obj = getAddWishRawObject();
-      obj.trigger_id = event.trigger_id;
-      global.doubanPush.openSlackView(obj);
+    switch (id) {
+    case 'add_wish':
+      const addWishObj = getAddWishRawObject();
+      addWishObj.trigger_id = event.trigger_id;
+      global.doubanPush.pushSlackRaw(addWishObj);
+      break;
+    case 'refresh_wish':
+      const refreshWishObj = getRefreshWishRawObject();
+      refreshWishObj.trigger_id = event.trigger_id;
+      global.doubanPush.pushSlackRaw(refreshWishObj);
+      break;
+    case 'site_info':
+      const siteInfoObj = await getSiteInfoRawObject();
+      siteInfoObj.trigger_id = event.trigger_id;
+      global.doubanPush.pushSlackRaw(siteInfoObj);
+      break;
+    case 'refresh_subscribe':
+      const refreshSubscribe = await getRefreshSubscribeRawObject();
+      refreshSubscribe.trigger_id = event.trigger_id;
+      global.doubanPush.pushSlackRaw(refreshSubscribe);
+      break;
     }
   }
 
-  /*
   async handelSlackBlockActions (event) {
-    if (event.actions[0].action_id === 'search_media') {
-      const douban = event.view.state.values.douban_account.douban_account.selected_option.value;
-      const text = event.view.state.values.media_name.media_name.value;
-      const result = await global.runningDouban[douban].search(text);
-      if (result.length === 0) {
-        const obj = getNoneResultRaw();
-        obj.trigger_id = event.trigger_id;
-        await global.doubanPush.openSlackView(obj);
-        return '';
+    if (event.actions[0].action_id === 'add_wish') {
+      for (const key of Object.keys(event.state.values)) {
+        event.state.values[key.split('|')[0]] = event.state.values[key];
       }
-      const obj = getSelectMediaRaw();
-      obj.trigger_id = event.trigger_id;
-      global.doubanPush.openSlackView(obj);
-    }
-  }
-  */
-
-  async handleViewSubmission (event) {
-    if (event.view.external_id.indexOf('add_wish') === 0) {
-      const douban = event.view.state.values.douban_account.douban_account.selected_option.value;
-      const text = event.view.state.values.media_name.media_name.value;
+      const douban = event.state.values.douban_account.douban_account.selected_option.value;
+      const text = event.state.values.media_name.media_name.value;
       const result = await global.runningDouban[douban].search(text);
       if (result.length === 0) {
         const obj = getNoneResultRaw();
         obj.trigger_id = event.trigger_id;
-        global.doubanPush.openSlackView(obj);
+        global.doubanPush.pushSlackRaw(obj);
         return;
       }
       const obj = getSelectMediaRaw(result, douban);
       obj.trigger_id = event.trigger_id;
-      logger.info(obj);
-      global.doubanPush.openSlackView(obj);
+      global.doubanPush.pushSlackRaw(obj);
     }
-    if (event.view.external_id.indexOf('select_wish') === 0) {
-      const douban = event.view.private_metadata;
-      const id = event.view.state.values.wish_select.wish_select.selected_option.value;
-      const tag = event.view.state.values.tag_select.tag_select.selected_option.value;
+    if (event.actions[0].action_id === 'select_wish') {
+      let douban = '';
+      for (const key of Object.keys(event.state.values)) {
+        event.state.values[key.split('|')[0]] = event.state.values[key];
+        if (key.split('|')[0] === 'wish_select') {
+          douban = key.split('|')[1];
+        }
+      }
+      const id = event.state.values.wish_select.wish_select.selected_option.value;
+      const tag = event.state.values.tag_select.tag_select.selected_option.value;
       (async () => {
         try {
           await global.runningDouban[douban].addWish(id, tag);
@@ -274,6 +457,29 @@ class WebhookMod {
         await global.doubanPush.selectWish('添加成功');
         await global.runningDouban[douban].refreshWishList(true);
       })();
+      return '';
+    }
+    if (event.actions[0].action_id === 'refresh_wish') {
+      for (const key of Object.keys(event.state.values)) {
+        event.state.values[key.split('|')[0]] = event.state.values[key];
+      }
+      const id = event.state.values.wish_id.wish_id.selected_option.value;
+      const wishId = id.split('|')[1];
+      const douban = global.runningDouban[id.split('|')[0]];
+      if (douban && douban.enableWechatLink) {
+        douban.wechatLink('refreshWish', { key: wishId });
+      }
+      return '';
+    }
+    if (event.actions[0].action_id === 'refresh_subscribe') {
+      for (const key of Object.keys(event.state.values)) {
+        event.state.values[key.split('|')[0]] = event.state.values[key];
+      }
+      const subscribeId = event.state.values.subscribe_id.subscribe_id.selected_option.value;
+      const subscribe = global.runningDouban[subscribeId];
+      if (subscribe && subscribe.enableWechatLink) {
+        subscribe.wechatLink('refresh');
+      }
       return '';
     }
   }
@@ -298,7 +504,6 @@ class WebhookMod {
       'media-scrobble': '播放超过 90%'
     };
     const event = eventMap[payload.event.replace('.', '-')] + ': ' + payload.Metadata.title + ' / ' + (payload.Metadata.originalTitle || '');
-    const server = payload.Server.title;
     const note = `用户: ${payload.Account.title}\n` +
       `媒体: ${payload.Metadata.title} / ${payload.Metadata.originalTitle || ''}\n` +
       `服务器: ${payload.Server.title}\n` +
@@ -326,7 +531,6 @@ class WebhookMod {
       playbackStop: '播放已停止'
     };
     const event = eventMap[payload.event] + ': ' + payload.itemName + ' / ' + (payload.originalName || '');
-    const server = payload.serverName;
     const note = `用户: ${payload.userName}\n` +
       `媒体: ${payload.itemName} / ${payload.originalName || ''}\n` +
       `服务器: ${payload.serverName}\n` +
@@ -348,7 +552,6 @@ class WebhookMod {
       PlaybackStop: '播放已停止'
     };
     const event = eventMap[payload.NotificationType] + ': ' + payload.Name + ' / ' + (payload.SeriesName || '');
-    const server = payload.serverName;
     const note = `用户: ${payload.NotificationUsername}\n` +
       `媒体: ${payload.Name} / ${payload.SeriesName || ''}\n` +
       `服务器: ${payload.ServerName}\n`;
@@ -525,7 +728,7 @@ class WebhookMod {
       await redis.del('vertex:select:douban');
       const keys = [];
       for (const [index, value] of result.entries()) {
-        await global.doubanPush.pushWeChat(`${index}: ${value.title} - ${value.year}`, '', value.poster);
+        await global.doubanPush.pushWeChat(`${index}: ${value.title} - ${value.year}`, value.subtitle || '', value.poster);
         keys.push({ id: index, text: `${value.title} - ${value.year}` });
       }
       const selectors = [
@@ -618,6 +821,7 @@ class WebhookMod {
       return '';
     }
     const event = body.event;
+    // logger.info(event);
     if (event.callback_id) {
       return await this.handleSlackShortCuts(event.callback_id, event);
     }
@@ -627,8 +831,6 @@ class WebhookMod {
     if (event.type === 'view_submission') {
       return await this.handleViewSubmission(event);
     }
-    logger.info(event);
-    logger.info('收到 Slack 消息:', event.text);
     return event;
   }
 }

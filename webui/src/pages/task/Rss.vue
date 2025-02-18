@@ -28,6 +28,8 @@
           <span>
             <a @click="modifyClick(record)">编辑</a>
             <a-divider type="vertical" />
+            <a @click="cloneClick(record)">克隆</a>
+            <a-divider type="vertical" />
             <a-popover title="删除?" trigger="click" :overlayStyle="{ width: '84px', overflow: 'hidden' }">
               <template #content>
                 <a-button type="primary" danger @click="deleteRss(record)" size="small">删除</a-button>
@@ -63,7 +65,7 @@
           name="enable"
           extra="选择是否启用 RSS 任务"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="rss.used" v-model:checked="rss.enable">启用</a-checkbox>
+          <a-checkbox v-model:checked="rss.enable">启用</a-checkbox>
         </a-form-item>
         <a-form-item
           label="下载器"
@@ -73,7 +75,7 @@
           <a-checkbox-group style="width: 100%;" v-model:value="rss.clientArr">
             <a-row>
               <a-col v-for="downloader of downloaders" :span="8" :key="downloader.id">
-                <a-checkbox  v-model:value="downloader.id">{{ downloader.alias }}</a-checkbox>
+                <a-checkbox :disabled="!downloader.enable && !rss.clientArr.includes(downloader.id)" v-model:value="downloader.id">{{ downloader.alias }}</a-checkbox>
               </a-col>
             </a-row>
           </a-checkbox-group>
@@ -161,6 +163,7 @@
           label="Cookie"
           v-if="rss.scrapeHr || rss.scrapeFree"
           name="cookie"
+          extra="Cookie, M-Team 为 api key"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-input size="small" v-model:value="rss.cookie"/>
         </a-form-item>
@@ -274,6 +277,28 @@
           <a-checkbox v-model:checked="rss.pushTorrentFile">推送种子文件</a-checkbox>
         </a-form-item>
         <a-form-item
+          label="自定义正则替换"
+          v-if="!rss.pushTorrentFile"
+          name="useCustomRegex"
+          extra="对种子下载链接进行自定义正则表达式替换, 仅在推送方式为推送种子下载链接时生效。不完全理解本功能请勿设置, 不恰当的配置可能导致你的账号被ban。">
+          <a-checkbox v-model:checked="rss.useCustomRegex">使用自定义正则</a-checkbox>
+        </a-form-item>
+        <a-form-item
+          label="正则表达式"
+          v-if="(!rss.pushTorrentFile) && rss.useCustomRegex"
+          name="regexStr"
+          extra="格式: /pattern/flags"
+          :rules="[{ required: true, message: '${label}不可为空! ' }]">
+          <a-input size="small" v-model:value="rss.regexStr"/>
+        </a-form-item>
+        <a-form-item
+          label="替换为"
+          v-if="(!rss.pushTorrentFile) && rss.useCustomRegex"
+          name="replaceStr"
+          :rules="[{ required: true, message: '${label}不可为空! ' }]">
+          <a-input size="small" v-model:value="rss.replaceStr"/>
+        </a-form-item>
+        <a-form-item
           label="拒绝规则"
           name="rejectRules"
           extra="拒绝规则, 种子状态符合其中一个时即触发拒绝种子操作">
@@ -300,11 +325,59 @@
         <a-form-item
           :wrapperCol="isMobile() ? { span:24 } : { span: 21, offset: 3 }">
           <a-button type="primary" html-type="submit" style="margin-top: 24px; margin-bottom: 48px;">应用 | 完成</a-button>
-          <a-button style="margin-left: 12px; margin-top: 24px; margin-bottom: 48px;"  @click="clearRss()">清空</a-button>
+          <a-button style="margin-left: 12px; margin-top: 24px; margin-bottom: 48px;" @click="clearRss()">清空</a-button>
+          <a-button type="primary" style="margin-left: 12px; margin-top: 24px; margin-bottom: 48px;" @click="dryrun()">试运行</a-button>
         </a-form-item>
       </a-form>
     </div>
   </div>
+  <a-modal
+    v-model:visible="modalVisible"
+    title="RSS 试运行"
+    width="1440px"
+    :footer="null">
+    <div style="text-align: left; ">
+      <a-alert message="注意事项" type="info" >
+        <template #description>
+          RSS 试运行仅判断是否符合 RSS 规则，不检测种子免费或 HR 状态。
+          <br>
+          RSS 链接: {{ rss.rssUrls[0] }}
+        </template>
+      </a-alert>
+      <a-form
+        labelAlign="right"
+        :labelWrap="true"
+        size="small"
+        :labelCol="{ span: 6 }"
+        :wrapperCol="{ span: 18 }"
+        autocomplete="off">
+        <a-form-item
+          :wrapperCol="{ span:24 }">
+          <a-table
+            :style="`font-size: ${isMobile() ? '12px': '14px'};`"
+            :columns="dryrunColumns"
+            size="small"
+            :data-source="dryrunResult"
+            :pagination="false"
+            :scroll="{ x: 960 }"
+          >
+            <template #title>
+              <span style="font-size: 16px; font-weight: bold;">种子列表</span>
+            </template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.dataIndex === 'size'">
+                {{ $formatSize(record.size) }}
+              </template>
+            </template>
+          </a-table>
+        </a-form-item>
+        <a-form-item
+          :wrapperCol="isMobile() ? { span:24 } : { span: 6, offset: 18 }">
+          <a-button @click="() => modalVisible = false">取消</a-button>
+        </a-form-item>
+      </a-form>
+    </div>
+  </a-modal>
 </template>
 <script>
 export default {
@@ -338,8 +411,25 @@ export default {
         width: 28
       }
     ];
+    const dryrunColumns = [
+      {
+        title: '种子标题',
+        dataIndex: 'name',
+        width: 144
+      }, {
+        title: '种子大小',
+        dataIndex: 'size',
+        width: 14
+      }, {
+        title: '结果',
+        dataIndex: 'status',
+        width: 28
+      }
+    ];
     return {
       columns,
+      dryrunColumns,
+      modalVisible: false,
       rssList: [],
       downloaders: [],
       notifications: [],
@@ -386,7 +476,7 @@ export default {
     async listNotification () {
       try {
         const res = await this.$api().notification.list();
-        this.notifications = res.data;
+        this.notifications = res.data.sort((a, b) => a.alias.localeCompare(b.alias));
       } catch (e) {
         this.$message().error(e.message);
       }
@@ -394,7 +484,7 @@ export default {
     async listRssRule () {
       try {
         const res = await this.$api().rssRule.list();
-        this.rssRules = res.data;
+        this.rssRules = res.data.sort((a, b) => a.alias.localeCompare(b.alias));
       } catch (e) {
         this.$message().error(e.message);
       }
@@ -417,10 +507,19 @@ export default {
         this.$message().error(e.message);
       }
     },
+    async dryrun () {
+      try {
+        const res = await this.$api().rss.dryrun({ ...this.rss });
+        this.dryrunResult = res.data;
+        this.modalVisible = true;
+      } catch (e) {
+        this.$message().error(e.message);
+      }
+    },
     async enableTask (record) {
       try {
         await this.$api().rss.modify({ ...record });
-        this.$message().success((this.rss.id ? '编辑' : '新增') + '成功, 列表正在刷新...');
+        this.$message().success('修改成功, 列表正在刷新...');
         setTimeout(() => this.listRss(), 1000);
         this.clearRss();
       } catch (e) {
@@ -429,6 +528,11 @@ export default {
     },
     modifyClick (row) {
       this.rss = { ...row };
+    },
+    cloneClick (row) {
+      this.rss = JSON.parse(JSON.stringify(row));
+      this.rss.id = null;
+      this.rss.alias = this.rss.alias + '-克隆';
     },
     async deleteRss (row) {
       try {

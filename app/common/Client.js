@@ -43,11 +43,13 @@ class Client {
     this.ntf = new Push(this.notify);
     this.mnt = new Push(this.monitor);
     if (client.type === 'qBittorrent' && client.autoReannounce) {
-      this.reannounceJob = cron.schedule('*/11 * * * * *', () => this.autoReannounce());
+      this.reannounceJob = cron.schedule('3 * * * * *', () => this.autoReannounce());
     }
     this.reannouncedHash = [];
     this._deleteRules = client.deleteRules;
-    this.deleteRules = util.listDeleteRule().filter(item => client.deleteRules.indexOf(item.id) !== -1).sort((a, b) => b.priority - a.priority);
+    this.deleteRules = util.listDeleteRule().filter(item => this._deleteRules.indexOf(item.id) !== -1).sort((a, b) => b.priority - a.priority);
+    this._rejectDeleteRules = client.rejectDeleteRules || [];
+    this.rejectDeleteRules = util.listDeleteRule().filter(item => this._rejectDeleteRules.indexOf(item.id) !== -1).sort((a, b) => b.priority - a.priority);
     if (client.autoDelete) {
       this.autoDeleteJob = cron.schedule(client.autoDeleteCron, () => this.autoDelete());
       this.fitTime = {};
@@ -65,7 +67,10 @@ class Client {
     this.messageId = 0;
     this.errorCount = 0;
     this.trackerStatus = {};
+    this.pausedTorrentHashes = [];
     this.getMaindata();
+    this.avgUploadSpeed = 0;
+    this.avgDownloadSpeed = 0;
     this.lastCookie = 0;
     logger.info('下载器', this.alias, '初始化完毕');
   };
@@ -83,14 +88,15 @@ class Client {
     const torrent = { ..._torrent };
     torrent.ratio = torrent.uploaded / torrent.size;
     torrent.trueRatio = torrent.uploaded / ((torrent.downloaded === 0 && torrent.uploaded !== 0) ? torrent.size : torrent.downloaded);
+    torrent.ratio3 = torrent.uploaded / torrent.totalSize;
     torrent.addedTime = moment().unix() - torrent.addedTime;
     torrent.completedTime = moment().unix() - (torrent.completedTime <= 0 ? moment().unix() : torrent.completedTime);
     torrent.freeSpace = this.maindata.freeSpaceOnDisk;
     torrent.secondFromZero = moment().unix() - moment().startOf('day').unix();
     torrent.leechingCount = this.maindata.leechingCount;
     torrent.seedingCount = this.maindata.seedingCount;
-    torrent.globalUploadSpeed = this.maindata.uploadSpeed;
-    torrent.globalDownloadSpeed = this.maindata.downloadSpeed;
+    torrent.globalUploadSpeed = this.avgUploadSpeed;
+    torrent.globalDownloadSpeed = this.avgDownloadSpeed;
     for (const condition of conditions) {
       let value;
       switch (condition.compareType) {
@@ -204,6 +210,7 @@ class Client {
       }
     }
     this.deleteRules = util.listDeleteRule().filter(item => this._deleteRules.indexOf(item.id) !== -1).sort((a, b) => +b.priority - +a.priority);
+    this.rejectDeleteRules = util.listDeleteRule().filter(item => this._rejectDeleteRules.indexOf(item.id) !== -1).sort((a, b) => b.priority - a.priority);
     for (const rule of this.deleteRules) {
       if (rule.fitTime) {
         this.fitTime[rule.id] = {};
@@ -279,6 +286,8 @@ class Client {
           this.maindata.seedingCount += 1;
         }
       });
+      this.avgDownloadSpeed = maindata.downloadSpeed * 0.1 + this.avgDownloadSpeed * 0.9;
+      this.avgUploadSpeed = maindata.uploadSpeed * 0.1 + this.avgUploadSpeed * 0.9;
       /*
       let serverSpeed;
       if (this.sameServerClients) {
@@ -322,6 +331,9 @@ class Client {
       this.login();
       throw new Error('状态码: ' + statusCode);
     }
+    if (this.maindata) {
+      this.maindata.leechingCount += 1;
+    }
     await util.runRecord('insert into torrent_flow (hash, upload, download, time) values (?, ?, ?, ?)',
       [hash, 0, 0, moment().unix() - moment().unix() % 300]);
   };
@@ -337,6 +349,9 @@ class Client {
     if (statusCode !== 200) {
       this.login();
       throw new Error('状态码: ' + statusCode);
+    }
+    if (this.maindata) {
+      this.maindata.leechingCount += 1;
     }
     await util.runRecord('insert into torrent_flow (hash, upload, download, time) values (?, ?, ?, ?)',
       [hash, 0, 0, moment().unix() - moment().unix() % 300]);
@@ -361,7 +376,18 @@ class Client {
           isDeleteFiles = false;
         }
       }
-      await this.client.deleteTorrent(this.clientUrl, this.cookie, torrent.hash, isDeleteFiles);
+      if (rule.onlyDeleteTorrent) {
+        isDeleteFiles = false;
+      }
+      if (rule.limitSpeed) {
+        await this.setSpeedLimit(torrent.hash, 'download', rule.limitSpeed);
+        this.pausedTorrentHashes.push(torrent.hash);
+      } else if (rule.pause) {
+        await this.pauseTorrent(torrent.hash);
+        this.pausedTorrentHashes.push(torrent.hash);
+      } else {
+        await this.client.deleteTorrent(this.clientUrl, this.cookie, torrent.hash, isDeleteFiles);
+      }
       logger.info('下载器', this.alias, '删除种子成功:', torrent.name, rule.alias);
       await this.ntf.deleteTorrent(this._client, torrent, rule, isDeleteFiles);
     } catch (error) {
@@ -373,7 +399,6 @@ class Client {
 
   async autoReannounce () {
     if (!this.maindata) return;
-    this.reannouncedHash = [];
     logger.debug(this.alias, moment().format(), '启动重新汇报任务');
     for (const torrent of this.maindata.torrents) {
       if (!torrent.tracker || torrent.tracker.indexOf('btschool') !== -1) {
@@ -381,12 +406,11 @@ class Client {
       }
       if (this.reannouncedHash.includes(torrent.hash)) {
         continue;
-      } else {
-        this.reannouncedHash.push(torrent.hash);
       }
       const now = moment().unix();
-      if (now - torrent.addedTime < 300 && now - torrent.addedTime > 60 && (now - torrent.addedTime) % 60 < 10) {
+      if (now - torrent.addedTime <= 360 && now - torrent.addTime >= 300) {
         await this.reannounceTorrent(torrent);
+        this.reannouncedHash.push(torrent.hash);
       }
     }
   }
@@ -397,11 +421,20 @@ class Client {
       (a.completedTime <= 0 ? moment().unix() : a.completedTime) - (b.completedTime <= 0 ? moment().unix() : b.completedTime) ||
         a.addedTime - b.addedTime);
     const deletedTorrentHash = [];
+    const rejectDeleteHash = {};
+    for (const torrent of torrents) {
+      if (this.rejectDeleteRules.some(item => this._fitDeleteRule({ ...item }, torrent))) {
+        rejectDeleteHash[torrent.hash] = 1;
+      }
+    }
     for (const _rule of this.deleteRules) {
       const rule = { ..._rule };
       rule.deleteNum = rule.deleteNum || 1;
       let deletedNum = 0;
       for (const torrent of torrents) {
+        if (rejectDeleteHash[torrent.hash]) {
+          continue;
+        }
         if (rule.deleteNum <= deletedNum) {
           logger.debug('规则', rule.alias, ', 单次删除种子数量已达上限', rule.deleteNum, '退出删种任务');
           break;
@@ -410,14 +443,18 @@ class Client {
           logger.debug('规则', rule.alias, ', 种子', torrent.name, '已删除', '跳过');
           continue;
         }
+        if ((rule.limitSpeed || rule.pause) && this.pausedTorrentHashes.includes(torrent.hash)) {
+          logger.debug('规则', rule.alias, ', 种子', torrent.name, '已暂停或限速', '跳过');
+          continue;
+        }
         if (this._fitDeleteRule(rule, torrent)) {
           deletedNum += 1;
           await this.reannounceTorrent(torrent);
           logger.info(torrent.name, '重新汇报完毕, 等待 2s');
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+          await util.sleep(2000);
           logger.info(torrent.name, '等待 2s 完毕, 执行删种');
-          await util.runRecord('update torrents set size = ?, tracker = ?, upload = ?, download = ?, delete_time = ? where hash = ?',
-            [torrent.size, torrent.tracker, torrent.uploaded, torrent.downloaded, moment().unix(), torrent.hash]);
+          await util.runRecord('update torrents set size = ?, tracker = ?, upload = ?, download = ?, delete_time = ?, record_note = ? where hash = ?',
+            [torrent.size, torrent.tracker, torrent.uploaded, torrent.downloaded, moment().unix(), `删种规则: ${rule.alias}`, torrent.hash]);
           await util.runRecord('insert into torrent_flow (hash, upload, download, time) values (?, ?, ?, ?)',
             [torrent.hash, torrent.uploaded, torrent.downloaded, moment().unix()]);
           const deleteFiles = await this.deleteTorrent(torrent, rule);

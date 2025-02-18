@@ -3,11 +3,12 @@ const util = require('../util');
 class Site {
   constructor () {
     this.name = 'DICMusic';
+    this.url = 'https://dicmusic.com/';
   };
 
   async getInfo () {
     const info = {};
-    const document = await this._getDocument('https://dicmusic.club/user.php', false, 10);
+    const document = await this._getDocument(`${this.index}/user.php`, false, 10);
     // 用户名
     info.username = document.querySelector('a[href^="user.php"]').innerHTML;
     // uid
@@ -21,16 +22,24 @@ class Site {
 
     // ajax
     const { body: stats } = await util.requestPromise({
-      url: 'https://dicmusic.club/ajax.php?action=community_stats&userid=' + info.uid,
+      url: `${this.index}ajax.php?action=community_stats&userid=${info.uid}`,
       headers: {
         cookie: this.cookie
       }
     });
     const statsJson = JSON.parse(stats);
     // 做种
-    info.seeding = statsJson.response.seeding;
+    info.seeding = +statsJson.response.seeding;
     // 下载
-    info.leeching = statsJson.response.leeching;
+    info.leeching = +statsJson.response.leeching;
+    // 做种体积
+    const seedingDocument = await this._getDocument(`${this.index}torrents.php?type=seeding&userid=${info.uid}`);
+    const seedingTorrent = [...seedingDocument.querySelectorAll('.td_size.number_column')];
+    info.seedingSize = 0;
+    for (const torrent of seedingTorrent) {
+      const siteStr = torrent.innerHTML.replace(/([KMGTP])B/, '$1iB');
+      info.seedingSize += util.calSize(...siteStr.split(' '));
+    }
     return info;
   };
 };

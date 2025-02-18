@@ -6,7 +6,8 @@ import {
   Button, Form, Input, Message, Menu, Layout,
   Drawer, Table, Divider, Descriptions, Col, Row, Tag,
   Checkbox, Select, Dropdown, Switch, Upload, Modal,
-  Radio, Popover, Tree, Alert, notification as Notification
+  Radio, Popover, Tree, Alert, notification as Notification,
+  Space
 } from 'ant-design-vue';
 import App from './App';
 import { library } from '@fortawesome/fontawesome-svg-core';
@@ -31,6 +32,7 @@ import VueLazyLoad from 'vue-lazyload-next';
 import md5 from 'md5-node';
 
 import router from './routes';
+import './registerServiceWorker';
 
 library.add(fas);
 library.add(fab);
@@ -54,7 +56,7 @@ const components = [
   Button, Form, Input, Menu, Layout, Drawer,
   Table, Divider, Descriptions, Col, Row, Tag,
   Checkbox, Select, Dropdown, Switch, Upload, Modal,
-  Radio, Popover, Tree, Alert
+  Radio, Popover, Tree, Alert, Space
 ];
 
 for (const component of components) {

@@ -4,11 +4,15 @@ const path = require('path');
 const uuid = require('uuid');
 const tar = require('tar');
 const md5 = require('md5-node');
+const CryptoJS = require('crypto-js');
+const cron = require('node-cron');
 const request = require('request');
 const Database = require('better-sqlite3');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const url = require('url');
+const { JSDOM } = require('jsdom');
+const moment = require('moment');
 const redlock = require('./redlock');
 
 const logger = require('./logger');
@@ -91,6 +95,9 @@ exports.requestPromise = async function (_options, usePuppeteer = true) {
       options.proxy = global.proxy;
     }
   }
+  if (global.trustAllCerts) {
+    options.rejectUnauthorized = !global.trustAllCerts;
+  }
   const res = await exports._requestPromise(options);
   if (usePuppeteer && res.body && typeof res.body === 'string' && (res.body.indexOf('trk_jschal_js') !== -1 || res.body.indexOf('jschl-answer') !== -1 || (res.body.indexOf('cloudflare-static') !== -1 && res.body.indexOf('email-decode.min.js') === -1))) {
     logger.info(new url.URL(options.url).hostname, '疑似遇到 5s 盾, 启用 Puppeteer 抓取页面....');
@@ -164,40 +171,50 @@ exports.uuid = uuid;
 exports.md5 = md5;
 exports.tar = tar;
 
-exports.scrapeNameByFile = async function (_filename, type, _year = false) {
+exports.formatQSString = function (qs) {
+  return Object.keys(qs).filter(item => qs[item]).map(item => `${item}=${encodeURIComponent(qs[item])}`).join('&');
+};
+
+exports.scrapeNameByFile = async function (_filename, type, _year = false, useFullname = false) {
   const filename = _filename.replace(/[[\]]/g, '');
-  if (!global.tmdbApiKey) {
-    throw new Error('未填写 The Movie Database Api Key');
-  }
-  let url = `https://api.themoviedb.org/3/search/${type || 'multi'}?language=zh-CN&api_key=${global.tmdbApiKey}&query=`;
   let searchKey = filename.split(/19\d\d|20\d\d|S\d\d/)[0]
     .replace(/[a-zA-z]+TV(\dK)?\.?/, '')
     .replace(/(Jade)\.?/, '')
     .replace(/[\u4e00-\u9fa5\uff01\uff1a]+\d+[\u4e00-\u9fa5\uff01\uff1a]+/g, '')
-    .replace(/[!\u4e00-\u9fa5\uff01\uff1a。:?？，,·・]/g, '')
+    .replace(/[\u4e00-\u9fa5\uff01\uff1a。:?？，,·・]/g, '')
     .replace(/\./g, ' ').trim();
   if (filename.match(/^[\u4e00-\u9fa5·]+[A-RT-Za-rt-z]*[\u4e00-\u9fa5·]+/)) {
     searchKey = filename.match(/^[\u4e00-\u9fa5·]+[A-RT-Za-rt-z]*[\u4e00-\u9fa5·]+/)[0].replace(/[^\u4e00-\u9fa5A-Za-z]/g, ' ').replace(/第.*季/g, '');
   }
-  url += encodeURI(searchKey);
-  const year = filename.match(/[^d](19\d{2}|20\d{2})[^d]/);
+  let year = filename.match(/[^d](19\d{2}|20\d{2})[^d]/);
   const season = filename.match(/S0[^1]/);
-  if (year && !season) {
-    url += `&first_air_date_year=${year[1]}&primary_release_year=${year[1]}`;
+  if (useFullname) {
+    searchKey = _filename.replace(/\.\d{4}$/, '');
+    year = _filename.match(/\.(\d{4})$/, '');
   }
+  if (year) {
+    year = year[1];
+  }
+  if (season) {
+    year = undefined;
+  }
+  const qs = {
+    year,
+    name: searchKey,
+    type,
+    apiKey: global.panelKey
+  };
+  const url = 'https://dash.vertex-app.top/api/tmdb/search?' + exports.formatQSString(qs);
   const res = await exports.requestPromise(url);
-  const body = JSON.parse(res.body);
-  if (body.status_code === 7) {
+  let body = JSON.parse(res.body);
+  if (!body.success) {
     logger.error(filename, searchKey, body);
-    throw new Error('The Movie Database Api Key 失效, 请重试');
+    throw new Error('请求 TMDB 信息返回有误, 请重试');
   }
-  if (!body.results) {
-    logger.error(filename, searchKey, body);
-    throw new Error('请求 TMDB Api 返回有误, 请重试');
-  }
+  body = body.data;
   body.results = body.results.sort((a, b) => b.popularity - a.popularity);
   logger.debug('根据文件名抓取影视剧名', filename, searchKey, body.results[0]?.name || body.results[0]?.title || '');
-  logger.debug('tmdb api url', url);
+  logger.debug(`请求信息 名: ${searchKey}, 年份: ${year}, 类型: ${type}`);
   if (_year) {
     return {
       name: body.results[0]?.name || body.results[0]?.title || '',
@@ -208,10 +225,11 @@ exports.scrapeNameByFile = async function (_filename, type, _year = false) {
   return body.results[0]?.name || body.results[0]?.title || '';
 };
 
-exports.scrapeEpisodeByFilename = function (_filename) {
-  const filename = _filename
+exports.scrapeEpisodeByFilename = function (_filename, ignoreKeys = '') {
+  let filename = _filename
     .replace(/【/g, '[')
     .replace(/】/g, ']');
+  ignoreKeys.split(',').forEach((item) => { filename = filename.replace(new RegExp(item, 'gi'), ''); });
   let episode = +(filename.match(/[Ee][Pp]?(\d+)[. ]+/) || [])[1];
   if (!episode) {
     episode = +(filename.match(/\[(\d+)[Vv]?\d?\]/) || [])[1];
@@ -229,7 +247,7 @@ exports.scrapeEpisodeByFilename = function (_filename) {
       .replace(/((1st)|(2nd)|(3rd))/g, '')
       .replace(/\[[.\dA-Za-z_-]*\]/g, '')
       .replace(/\d+[MmBbGg]/g, '')
-      .replace(/\d+[Xx]\d+/g, '')
+      .replace(/\d*[Xx]\d+/g, '')
       .match(/\d+/g)
       ?.map(item => +item.match(/\d+/))
       .filter(item => [0, 480, 720, 1080, 576, 2160, 1920].indexOf(item) === -1) || [];
@@ -462,7 +480,7 @@ exports.calSize = function (size, unit) {
     TiB: 1024 * 1024 * 1024 * 1024,
     PiB: 1024 * 1024 * 1024 * 1024 * 1024
   };
-  return +size * (unitMap[unit] || 1);
+  return Math.floor(+size * (unitMap[unit] || 1));
 };
 
 exports.formatTime = function (ms) {
@@ -494,4 +512,115 @@ exports.sleep = function (time) {
       return resolve('ping');
     }, time);
   });
+};
+
+exports.randomColor = function () {
+  return '#' + (new Array(6)).fill(1).map(() => '0123456789abcdef'[parseInt(Math.random() * 15)]).join('');
+};
+
+exports.mikanSearch = async function (name) {
+  const url = `https://mikanani.me/Home/Search?searchstr=${encodeURIComponent(name)}`;
+  const html = (await exports.requestPromise({
+    url: url
+  })).body;
+  const document = new JSDOM(html).window.document;
+  const torrentDoms = document.querySelectorAll('.js-search-results-row');
+  const torrents = [];
+  for (const _torrent of torrentDoms) {
+    const torrent = {
+      size: 0,
+      name: '',
+      hash: '',
+      id: 0,
+      url: '',
+      link: ''
+    };
+    torrent.name = _torrent.querySelector('.magnet-link-wrap').innerHTML.trim();
+    torrent.size = _torrent.children[1].innerHTML.trim();
+    if (torrent.size) {
+      torrent.size = exports.calSize(...torrent.size.replace(/ ?([MGKT])B/, ' $1iB').replace(/,/g, '').split(' '));
+    } else {
+      torrent.size = 0;
+    }
+    const link = _torrent.querySelector('.magnet-link-wrap').href.trim();
+    torrent.link = 'https://mikanani.me' + link;
+    torrent.hash = link.match(/Episode\/(.*)/)[1];
+    torrent.id = torrent.hash;
+    torrent.url = 'https://mikanani.me' + _torrent.querySelector('a[href*=Download]').href.trim();
+    torrent.pubTime = moment(_torrent.children[2].innerHTML.trim().replace(/\//g, '-')).unix();
+    torrents.push(torrent);
+  }
+  return torrents;
+};
+
+exports.syncCookieCloud = async (cc) => {
+  const { uuid, passwd, host, sites, douban } = cc;
+  const { body } = await exports.requestPromise(`${host}/get/${uuid}`);
+  const { encrypted } = JSON.parse(body);
+  const key = CryptoJS.MD5(uuid + '-' + passwd).toString().substring(0, 16);
+  const decrypted = CryptoJS.AES.decrypt(encrypted, key).toString(CryptoJS.enc.Utf8);
+  const parsed = JSON.parse(decrypted);
+  const cookies = Object.values(parsed.cookie_data).flat().map(item => ({
+    domain: item.domain,
+    cookie: `${item.name}=${item.value}`
+  }));
+
+  const _sites = exports.listSite();
+  const _doubans = exports.listDouban();
+  for (const s of sites) {
+    // 判断站点是否启用
+    const __site = _sites.filter(item => item.name === s)[0];
+    if (!__site || !global.runningSite[s]) {
+      continue;
+    }
+    // 拿到 host
+    const sitehost = new URL(global.runningSite[s].index).host;
+    // 过滤出 cookie
+    const cookie = cookies.filter(item => item.domain.replace(/^\./, '') === sitehost).map(item => item.cookie).join(';');
+    if (__site.cookie === cookie) {
+      logger.info('站点', __site.name, 'Cookie 未改变');
+      continue;
+    }
+    __site.cookie = cookie;
+    // 写入文件
+    fs.writeFileSync(path.join(__dirname, '../data/site', __site.name + '.json'), JSON.stringify(__site, null, 2));
+    global.runningSite[s].cookie = __site.cookie;
+    logger.info('站点', __site.name, '同步 Cookie');
+  }
+
+  // douban
+  if (douban) {
+    for (const d of Object.values(global.runningDouban)) {
+      const _douban = _doubans.filter(item => item.id === d.id)[0];
+      const cookie = cookies.filter(item => item.domain.endsWith('douban.com')).map(item => item.cookie).join(';');
+      if (_douban.cookie === cookie) {
+        logger.info('豆瓣 Cookie 未改变');
+        continue;
+      }
+      _douban.cookie = cookie;
+      global.runningDouban[_douban.id].cookie = cookie;
+      fs.writeFileSync(path.join(__dirname, '../data/douban/', d.id + '.json'), JSON.stringify(_douban, null, 2));
+      logger.info('豆瓣同步 Cookie');
+    }
+  }
+};
+
+exports.initCookieCloud = function () {
+  const setting = JSON.parse(fs.readFileSync(path.join(__dirname, '../data/setting.json')));
+  if (global.cookiecloud) {
+    global.cookiecloud.stop();
+    delete global.cookiecloud;
+  }
+  if (!setting.cookiecloud?.enable) {
+    return;
+  }
+  const cc = setting.cookiecloud;
+  global.cookiecloud = cron.schedule(cc.cron, async () => {
+    try {
+      await exports.syncCookieCloud(cc);
+    } catch (e) {
+      logger.error('cookiecloud 同步失败: \n', e);
+    };
+  });
+  // init
 };

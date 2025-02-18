@@ -54,8 +54,13 @@ class SettingMod {
     global.menu = options.menu || [];
     global.dashboardContent = options.dashboardContent || [];
     global.userAgent = options.userAgent;
+    global.ignoreError = options.ignoreError;
+    global.ignoreDependCheck = options.ignoreDependCheck;
     global.apiKey = options.apiKey;
+    global.trustVertexPanel = options.trustVertexPanel;
     global.theme = options.theme;
+    global.siteInfo = options.siteInfo;
+    global.trustAllCerts = options.trustAllCerts;
     global.background = options.background;
     global.tmdbApiKey = options.tmdbApiKey;
     global.dataPath = options.dataPath || '/';
@@ -77,6 +82,8 @@ class SettingMod {
       global.doubanPush = new Push({ ...doubanPush, push: true });
       global.doubanPush.modifyWechatMenu();
     }
+    // cookiecloud
+    util.initCookieCloud();
     return '修改全局设置成功, 部分设定需要刷新页面生效';
   };
 
@@ -139,7 +146,7 @@ class SettingMod {
     for (const tracker of Object.keys(perTrackerTodaySet)) {
       perTrackerToday.push({ tracker, ...perTrackerTodaySet[tracker] });
     }
-    const errors = JSON.parse(await redis.get('vertex:error:list') || '[]');
+    const errors = global.ignoreError ? [] : JSON.parse(await redis.get('vertex:error:list') || '[]');
     await redis.set('vertex:error:list', '[]');
     return {
       dashboardContent: global.dashboardContent,
@@ -191,37 +198,6 @@ class SettingMod {
         cookie: options.cookie
       }
     });
-  }
-
-  async loginMTeam (options) {
-    const { body } = await util.requestPromise({
-      url: 'https://kp.m-team.cc/index.php',
-      headers: {
-        cookie: options.cookie
-      }
-    }, false);
-    const username = body.match(/userdetails.*?<b>(.*)<\/b>/);
-    if (username) {
-      return '无需登录 ' + username[1] + ' 使用已有 Cookie 即可';
-    }
-    if (body.indexOf('M-Team') === -1) {
-      throw new Error('疑似遇到 5s 盾, 请手动获取 Cookie 并重试');
-    }
-    const { headers } = await util.requestPromise({
-      url: 'https://kp.m-team.cc/verify.php?returnto=%2F',
-      method: 'POST',
-      headers: {
-        cookie: options.cookie
-      },
-      formData: {
-        otp: options.otp
-      }
-    }, false);
-    if (headers.location === 'https://kp.m-team.cc/') {
-      return '登录成功';
-    } else {
-      throw new Error('登录失败, 请重试');
-    }
   }
 
   async getTrackerFlowHistory () {
@@ -278,6 +254,15 @@ class SettingMod {
     global.proxy = options.proxy || '';
     global.domains = options.domains || '';
     return '保存成功';
+  };
+
+  async clearHistory () {
+    await util.runRecord('delete from sites;');
+    await util.runRecord('delete from torrent_flow;');
+    await util.runRecord('delete from torrents;');
+    await util.runRecord('delete from tracker_flow;');
+    await util.runRecord('delete from vnstat;');
+    return '删除成功';
   };
 }
 

@@ -38,6 +38,16 @@
           <a-input size="small" v-model:value="setting.otpPw"/>
         </a-form-item>
         <a-form-item
+          label="信任不安全的 SSL 证书"
+          extra="默认不信任不安全的证书，勾选后信任所有 SSL 证书">
+          <a-checkbox v-model:checked="setting.trustAllCerts">启用</a-checkbox>
+        </a-form-item>
+        <a-form-item
+          label="信任 Vertex Panel"
+          extra="允许将站点数据信息提交至 Vertex Panel, 数据信息仅用于渲染图片, Vertex Panel 不会保存相关信息。">
+          <a-checkbox v-model:checked="setting.trustVertexPanel">启用</a-checkbox>
+        </a-form-item>
+        <a-form-item
           label="ApiKey"
           name="apiKey"
           extra="ApiKey 用于 Vertex 对外的接口请求鉴权, 第一次保存设置后生成">
@@ -89,7 +99,9 @@ export default {
           tmdbApiKey: s.tmdbApiKey,
           otp: s.otp ? '******' : (new Array(16)).fill(1).map(() => '234567ABCDEFGHIJKLMNOPQRSTUVWXYZ'[parseInt(Math.random() * 31)]).join(''),
           otpPw: '',
-          time: s.time
+          time: s.time,
+          trustAllCerts: s.trustAllCerts,
+          trustVertexPanel: s.trustVertexPanel
         };
       } catch (e) {
         await this.$message().error(e.message);

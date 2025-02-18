@@ -8,7 +8,7 @@
       size="small"
       :data-source="siteList"
       :pagination="false"
-      :scroll="{ x: 640 }"
+      :scroll="{ x: 1440 }"
     >
       <template #title>
         <span style="font-size: 16px; font-weight: bold;">站点列表</span>
@@ -21,14 +21,31 @@
         </template>
       </template>
       <template #bodyCell="{ column, record }">
-        <template v-if="column.dataIndex === 'upload'">
-          {{ $formatSize(record.upload) }}
+        <template v-if="column.dataIndex === 'name'">
+          <img :src="`/assets/icons/${record.name}.ico`" style="width: 32px; height: 32px; border-radius: 16px;" />
+          <a-divider type="vertical" />
+          <span style="">{{ record.name }}</span>
         </template>
-        <template v-if="column.dataIndex === 'download'">
-          {{ $formatSize(record.download) }}
+        <template v-if="column.dataIndex === 'data'">
+          <span style="color: green; font-weight: bold;">↑</span> {{ $formatSize(record.upload) }}
+          <br>
+          <span style="color: red; font-weight: bold;">↓</span> {{ $formatSize(record.download) }}
+        </template>
+        <template v-if="column.dataIndex === 'conn'">
+          <span style="color: green; font-weight: bold;">↑</span> {{ record.seeding }}
+          <br>
+          <span style="color: red; font-weight: bold;">↓</span> {{ record.leeching }}
+        </template>
+        <template v-if="column.dataIndex === 'seedingSize'">
+          <span style="color: green; font-weight: bold;">↑</span> {{ $formatSize(record.seedingSize) }}
         </template>
         <template v-if="column.dataIndex === 'updateTime'">
           {{ $moment(record.updateTime * 1000).format('MM-DD HH:mm:ss') }}
+        </template>
+        <template v-if="column.dataIndex === 'username'">
+          {{ record.username }}
+          <br>
+          {{ record.uid }}
         </template>
         <template v-if="column.title === '操作'">
           <span>
@@ -87,7 +104,7 @@
           name="enable"
           extra="选择是否启用站点"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="site.used" v-model:checked="site.enable">启用</a-checkbox>
+          <a-checkbox :disabled="site.used" v-model:checked="site.enable">启用</a-checkbox>
         </a-form-item>
         <a-form-item
           label="更新周期"
@@ -107,18 +124,19 @@
           name="pullRemoteTorrent"
           extra="豆瓣任务启动超级模式时, 将使用本站点拉取远程种子"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="site.used" v-model:checked="site.pullRemoteTorrent">拉取远程种子</a-checkbox>
+          <a-checkbox v-model:checked="site.pullRemoteTorrent">拉取远程种子</a-checkbox>
         </a-form-item>
         <a-form-item
           label="搜索 R18 分区"
           name="adult"
           v-if="site.name === 'MTeam'"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="site.used" v-model:checked="site.adult">搜索 R18 分区</a-checkbox>
+          <a-checkbox v-model:checked="site.adult">搜索 R18 分区</a-checkbox>
         </a-form-item>
         <a-form-item
           label="Cookie"
           name="cookie"
+          extra="Cookie, M-Team 为 api key"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-input size="small" v-model:value="site.cookie"/>
         </a-form-item>
@@ -138,24 +156,34 @@ export default {
       {
         title: '站点',
         dataIndex: 'name',
-        width: 32,
+        width: 24,
         sorter: (a, b) => a.name.localeCompare(b.name),
         fixed: true
       }, {
-        title: '用户名',
+        title: '用户名 / UID',
         dataIndex: 'username',
         sorter: (a, b) => a.username.localeCompare(b.username),
-        width: 30
+        width: 20
       }, {
-        title: '上传',
-        dataIndex: 'upload',
+        title: '数据',
+        dataIndex: 'data',
         sorter: (a, b) => a.upload - b.upload,
-        width: 30
+        width: 20
       }, {
-        title: '下载',
-        dataIndex: 'download',
-        sorter: (a, b) => a.download - b.download,
-        width: 30
+        title: '做种体积',
+        dataIndex: 'seedingSize',
+        sorter: (a, b) => a.seedingSize - b.seedingSize,
+        width: 20
+      }, {
+        title: '连接',
+        dataIndex: 'conn',
+        sorter: (a, b) => a.seeding - b.seeding,
+        width: 16
+      }, {
+        title: '优先级',
+        dataIndex: 'priority',
+        sorter: (a, b) => +a.priority - +b.priority,
+        width: 12
       }, {
         title: '上次刷新时间',
         dataIndex: 'updateTime',
@@ -217,6 +245,7 @@ export default {
       for (const site of siteList) {
         site.id = site.name;
         site.display = site.display === undefined ? true : site.display;
+        site.priority = site.priority || 0;
         this.siteList.push({ ...site });
       }
     },

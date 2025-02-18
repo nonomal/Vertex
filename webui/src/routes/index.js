@@ -30,6 +30,7 @@ import TaskScript from '@/pages/task/Script';
 import GuideRss from '@/pages/guide/Rss';
 import GuideSubsribe from '@/pages/guide/Subscribe';
 
+import ToolMikanHistory from '@/pages/tool/MikanHistory';
 import ToolNetworkTest from '@/pages/tool/NetworkTest';
 import ToolMTeamLogin from '@/pages/tool/MTeamLogin';
 import ToolHosts from '@/pages/tool/Hosts';
@@ -37,6 +38,7 @@ import ToolProxy from '@/pages/tool/Proxy';
 import ToolShell from '@/pages/tool/Shell';
 import ToolPathGenerator from '@/pages/tool/PathGenerator';
 import ToolClientLog from '@/pages/tool/ClientLog';
+import ToolClearHistory from '@/pages/tool/ClearHistory';
 
 import InfoInfo from '@/pages/info/Info';
 import InfoLog from '@/pages/info/Log';
@@ -48,6 +50,7 @@ import SettingSecurity from '@/pages/setting/Security';
 import SettingInteraction from '@/pages/setting/Interaction';
 import SettingMenu from '@/pages/setting/Menu';
 import SettingBackup from '@/pages/setting/Backup';
+import SettingCookieCloud from '@/pages/setting/CookieCloud';
 
 import SubscribeList from '@/pages/subscribe/List';
 import SubscribeDetail from '@/pages/subscribe/Detail';
@@ -56,6 +59,7 @@ import SubscribeSearch from '@/pages/subscribe/Search';
 
 import HistoryRss from '@/pages/history/Rss';
 import HistorySubsribe from '@/pages/history/Subscribe';
+import HistoryWatchCategory from '@/pages/history/WatchCategory';
 
 import MixSearch from '@/pages/mix/Search';
 import MixDownloader from '@/pages/mix/Downloader';
@@ -247,6 +251,12 @@ const setting = {
         title: '菜单设置 - 系统设置'
       }
     }, {
+      path: 'cc',
+      component: SettingCookieCloud,
+      meta: {
+        title: 'CookieCloud - 系统设置'
+      }
+    }, {
       path: 'backup',
       component: SettingBackup,
       meta: {
@@ -318,6 +328,12 @@ const history = {
       meta: {
         title: '订阅历史 - 任务历史'
       }
+    }, {
+      path: 'watchCategory',
+      component: HistoryWatchCategory,
+      meta: {
+        title: '监控分类历史 - 任务历史'
+      }
     }
   ]
 };
@@ -370,6 +386,12 @@ const tool = {
   redirect: '/tool/networkTest',
   children: [
     {
+      path: 'mikanHistory',
+      component: ToolMikanHistory,
+      meta: {
+        title: '蜜柑番剧历史 - 常用工具'
+      }
+    }, {
       path: 'networkTest',
       component: ToolNetworkTest,
       meta: {
@@ -398,6 +420,12 @@ const tool = {
       component: ToolPathGenerator,
       meta: {
         title: '路径生成器 - 常用工具'
+      }
+    }, {
+      path: 'clearHistory',
+      component: ToolClearHistory,
+      meta: {
+        title: '清除历史记录 - 常用工具'
       }
     }, {
       path: 'shell/:id',

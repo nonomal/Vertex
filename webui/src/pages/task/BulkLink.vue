@@ -211,7 +211,12 @@ export default {
       try {
         const res = await this.$api().subscribe.list();
         this.subscribes = res.data;
-        this.libraryPaths = [{ value: '手动输入' }, ...this.subscribes.map(item => item.categories).flat().map(item => ({ value: item.libraryPath }))];
+        this.libraryPaths = [{ value: '手动输入' }];
+        for (const category of this.subscribes.map(item => item.categories).flat()) {
+          if (this.libraryPaths.map(item => item.value).indexOf(category.libraryPath) === -1) {
+            this.libraryPaths.push({ value: category.libraryPath });
+          }
+        }
       } catch (e) {
         this.$message().error(e.message);
       }
@@ -227,6 +232,11 @@ export default {
     async doScrape () {
       for (const torrent of this.torrentList) {
         if (!torrent.visible) continue;
+        if (this.bulkLinkInfo.linkMode === 'keepStruct-3') {
+          torrent.status = '已识别';
+          torrent.scrapedName = '不需要~';
+          continue;
+        }
         torrent.status = '识别中';
         await this.scrapeName(torrent);
         torrent.status = torrent.scrapedName ? '已识别' : '识别失败';

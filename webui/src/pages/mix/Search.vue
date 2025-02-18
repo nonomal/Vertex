@@ -294,10 +294,10 @@ export default {
       this.qs.page = pagination.current;
       this.pagination.current = pagination.current;
       if (filters.site && filters.site[0]) {
-        this.torrents = this.torrentsOri.filter(item => filters.site.indexOf(item.site) !== -1);
+        this.torrents = this.torrents.filter(item => filters.site.indexOf(item.site) !== -1);
         this.pagination.total = this.torrents.length;
       } else {
-        this.torrents = [...this.torrentsOri];
+        this.torrents = [...this.torrents];
         this.pagination.total = this.torrents.length;
       }
     },
@@ -311,10 +311,22 @@ export default {
     },
     async listSubscribe () {
       try {
+        const _categories = (localStorage.getItem('vertex-search-categories') || '').split(',').filter(item => item).map(item => ({ value: item }));
+        const _savepaths = (localStorage.getItem('vertex-search-savepaths') || '').split(',').filter(item => item).map(item => ({ value: item }));
         const res = await this.$api().subscribe.list();
         this.subscribes = res.data;
-        this.categories = [{ value: '手动输入' }, ...this.subscribes.map(item => item.categories).flat().map(item => ({ value: item.category }))];
-        this.savePaths = [{ value: '手动输入' }, ...this.subscribes.map(item => item.categories).flat().map(item => ({ value: item.savePath }))];
+        this.categories = [{ value: '手动输入' }].concat(_categories);
+        for (const item of this.subscribes.map(item => item.categories).flat()) {
+          if (this.categories.map(subitem => subitem.value).indexOf(item.category) === -1) {
+            this.categories.push({ value: item.category });
+          }
+        }
+        this.savePaths = [{ value: '手动输入' }].concat(_savepaths);
+        for (const item of this.subscribes.map(item => item.categories).flat()) {
+          if (this.savePaths.map(subitem => subitem.value).indexOf(item.savePath) === -1) {
+            this.savePaths.push({ value: item.savePath });
+          }
+        }
       } catch (e) {
         this.$message().error(e.message);
       }

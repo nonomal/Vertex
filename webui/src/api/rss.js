@@ -16,5 +16,17 @@ export default {
   delRecord: async (body) => {
     const url = '/api/rss/deleteRecord';
     return await post(url, body);
+  },
+  dryrun: async (rss) => {
+    const url = '/api/rss/dryrun';
+    return await post(url, rss);
+  },
+  mikanSearch: async (rss) => {
+    const url = '/api/rss/mikanSearch';
+    return await post(url, rss);
+  },
+  mikanPush: async (body) => {
+    const url = '/api/rss/mikanPush';
+    return await post(url, body);
   }
 };

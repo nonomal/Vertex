@@ -70,6 +70,24 @@
           <a-input size="small" v-model:value="deleteRule.deleteNum"/>
         </a-form-item>
         <a-form-item
+          label="暂停种子"
+          name="pause"
+          extra="默认为删除种子，启用该选项后用暂停种子替代，其它流程照旧">
+          <a-checkbox v-model:checked="deleteRule.pause">暂停种子</a-checkbox>
+        </a-form-item>
+        <a-form-item
+          label="仅删除种子"
+          name="onlyDeleteTorrent"
+          extra="仅删除种子，若勾选，删除种子时不删除文件">
+          <a-checkbox v-model:checked="deleteRule.onlyDeleteTorrent">仅删除种子</a-checkbox>
+        </a-form-item>
+        <a-form-item
+          label="限制下载速度"
+          name="limitSpeed"
+          extra="默认为删除种子，启用该选项后用限制种子下载速度替代, 优先级高于暂停种子及删除种子, 单位为字节每秒 Byte/s, 留空为不启用">
+          <a-input size="small" v-model:value="deleteRule.limitSpeed"/>
+        </a-form-item>
+        <a-form-item
           label="类型"
           name="type"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
@@ -82,6 +100,7 @@
           label="限制条件"
           v-if="deleteRule.type === 'normal'"
           name="conditions"
+          extra="关于各个条件的介绍，可以查看下方的说明"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-table
             :style="`font-size: ${isMobile() ? '12px': '14px'};`"
@@ -166,13 +185,14 @@
           13. 比较类型中的 包含 / 包含于 或 不包含 / 不包含于: 值部分需以半角逗号 , 为分割符, 如种子分类不包含于 KEEP, KEEP2, KEEP3 三个分类, 则应填写:
               `KEEP,KEEP2,KEEP3`
           -->
-        <a-descriptions-item label="01. 分享率一">上传 / 种子大小 的结果</a-descriptions-item>
+        <a-descriptions-item label="01. 分享率一">上传 / 选中文件大小 的结果</a-descriptions-item>
         <a-descriptions-item label="02. 分享率二">上传 / 下载 的结果</a-descriptions-item>
-        <a-descriptions-item label="03. 站点域名">种子的 Tracker 地址的域名部分</a-descriptions-item>
-        <a-descriptions-item label="04. 各类时间">选项时间到当前时间的差值, 单位为 秒/s</a-descriptions-item>
-        <a-descriptions-item label="05. 各类大小">单位为 字节 / Byte, 可以使用 * 做乘法运算</a-descriptions-item>
-        <a-descriptions-item label="06. 各类速度">单位为 字节/s / Byte/s</a-descriptions-item>
-        <a-descriptions-item label="07. 种子状态">
+        <a-descriptions-item label="03. 分享率三">上传 / 种子总大小 的结果</a-descriptions-item>
+        <a-descriptions-item label="04. 站点域名">种子的 Tracker 地址的域名部分</a-descriptions-item>
+        <a-descriptions-item label="05. 各类时间">选项时间到当前时间的差值, 单位为 秒/s</a-descriptions-item>
+        <a-descriptions-item label="06. 各类大小">单位为 字节 / Byte, 可以使用 * 做乘法运算</a-descriptions-item>
+        <a-descriptions-item label="07. 各类速度">单位为 字节/s / Byte/s</a-descriptions-item>
+        <a-descriptions-item label="08. 种子状态">
           参照 qBittorrent 对种子状态的定义, 主要包含以下几类:
           <br>
           上传中: uploading, 下载中: downloading
@@ -181,18 +201,19 @@
           <br>
           若想删除等待下载状态下的种子, 应填写 stalledDL
           <br>
-          更多状态请参照 qBittorrent Wiki
+          更多状态请参照
+          <a href="https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list">qBittorrent Wiki</a>
         </a-descriptions-item>
-        <a-descriptions-item label="08. 返回信息">种子 Tracker 列表中由 Tracker 返回的信息</a-descriptions-item>
-        <a-descriptions-item label="09. 当前时间">
+        <a-descriptions-item label="09. 返回信息">种子 Tracker 列表中由 Tracker 返回的信息</a-descriptions-item>
+        <a-descriptions-item label="10. 当前时间">
           当天 0 点到当前时间的秒数, 0 点的时间戳取决于 Vertex 安装环境的时区
           <br>
           例: 填写 当前时间大于 8*3600 与 当前时间小于 22*3600, 则只会在当天上午 8 点之后到 22 点之前删种
         </a-descriptions-item>
-        <a-descriptions-item label="10. 全局速度">当前下载器的速度</a-descriptions-item>
-        <a-descriptions-item label="11. 做种下载连接">仅计算已连接上的数量, 也即 qBittorrent WebUI 内括号外的数字</a-descriptions-item>
-        <a-descriptions-item label="12. 做种下载任务">任务的数量, 做种包含上传中状态与做种状态, 下载包含下载中与等待下载状态</a-descriptions-item>
-        <a-descriptions-item label="13. 比较类型中的 包含 / 包含于 或 不包含 / 不包含于">
+        <a-descriptions-item label="11. 全局速度">当前下载器的速度</a-descriptions-item>
+        <a-descriptions-item label="12. 做种下载连接">仅计算已连接上的数量, 也即 qBittorrent WebUI 内括号外的数字</a-descriptions-item>
+        <a-descriptions-item label="13. 做种下载任务">任务的数量, 做种包含上传中状态与做种状态, 下载包含下载中与等待下载状态</a-descriptions-item>
+        <a-descriptions-item label="14. 比较类型中的 包含 / 包含于 或 不包含 / 不包含于">
           值部分需以半角逗号 , 为分割符. 如种子分类不包含于 KEEP, KEEP2, KEEP3 三个分类, 则应填写: KEEP,KEEP2,KEEP3
         </a-descriptions-item>
       </a-descriptions>
@@ -272,8 +293,11 @@ export default {
         name: '种子标签',
         key: 'tags'
       }, {
-        name: '种子大小',
+        name: '选择大小',
         key: 'size'
+      }, {
+        name: '种子大小',
+        key: 'totalSize'
       }, {
         name: '种子状态',
         key: 'state'
@@ -298,6 +322,9 @@ export default {
       }, {
         name: '分享率二',
         key: 'trueRatio'
+      }, {
+        name: '分享率三',
+        key: 'ratio3'
       }, {
         name: '添加时间',
         key: 'addedTime'

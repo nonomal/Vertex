@@ -150,19 +150,23 @@ class UserMod {
           title: '订阅历史',
           path: '/history/subscribe',
           icon: ['fas', 'calendar-check']
+        }, {
+          title: '监控分类历史',
+          path: '/history/watchCategory',
+          icon: ['fas', 'video']
         }]
       }, {
         title: '常用工具',
         path: '/tool',
         icon: ['fas', 'toolbox'],
         sub: [{
+          title: '蜜柑番剧历史',
+          path: '/tool/mikanHistory',
+          icon: ['fas', 'clock-rotate-left']
+        }, {
           title: '网络测试',
           path: '/tool/networkTest',
           icon: ['fas', 'square-check']
-        }, {
-          title: 'MTEAM 登录',
-          path: '/tool/mteamLogin',
-          icon: ['fas', 'arrow-right-to-bracket']
         }, {
           title: '修改 HOSTS',
           path: '/tool/hosts',
@@ -171,6 +175,10 @@ class UserMod {
           title: 'HTTP 代理',
           path: '/tool/proxy',
           icon: ['fas', 'globe']
+        }, {
+          title: '清除历史记录',
+          path: '/tool/clearHistory',
+          icon: ['fas', 'trash']
         }, {
           title: '路径生成器',
           path: '/tool/pathGenerator',
@@ -217,6 +225,10 @@ class UserMod {
           title: '菜单设置',
           path: '/setting/menu',
           icon: ['fas', 'bars']
+        }, {
+          title: 'CookieCloud',
+          path: '/setting/cc',
+          icon: ['fas', 'cookie']
         }, {
           title: '备份还原',
           path: '/setting/backup',

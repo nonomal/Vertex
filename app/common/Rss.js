@@ -33,24 +33,30 @@ class Rss {
     this.category = rss.category;
     this.paused = rss.paused;
     this.autoTMM = rss.autoTMM;
+    this.useCustomRegex = rss.useCustomRegex;
+    this.regexStr = rss.regexStr;
+    this.replaceStr = rss.replaceStr;
     this.addCountPerHour = +rss.addCountPerHour || 20;
     this.addCount = 0;
     this.pushTorrentFile = rss.pushTorrentFile;
     this.notify = util.listPush().filter(item => item.id === rss.notify)[0] || {};
     this.notify.push = rss.pushNotify;
+    this.notify.dryrun = rss.dryrun;
     this.ntf = new Push(this.notify);
     this._acceptRules = rss.acceptRules || [];
     this._rejectRules = rss.rejectRules || [];
-    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1));
-    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1));
+    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
+    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
     this.downloadLimit = util.calSize(rss.downloadLimit, rss.downloadLimitUnit);
     this.uploadLimit = util.calSize(rss.uploadLimit, rss.uploadLimitUnit);
     this.maxClientUploadSpeed = util.calSize(rss.maxClientUploadSpeed, rss.maxClientUploadSpeedUnit);
     this.maxClientDownloadSpeed = util.calSize(rss.maxClientDownloadSpeed, rss.maxClientDownloadSpeedUnit);
     this.maxClientDownloadCount = +rss.maxClientDownloadCount;
-    this.rssJob = cron.schedule(rss.cron, async () => { try { await this.rss(); } catch (e) { logger.error(this.alias, e); } });
-    this.clearCount = cron.schedule('0 * * * *', () => { this.addCount = 0; });
-    logger.info('Rss 任务', this.alias, '初始化完毕');
+    if (!rss.dryrun) {
+      this.rssJob = cron.schedule(rss.cron, async () => { try { await this.rss(); } catch (e) { logger.error(this.alias, e); } });
+      this.clearCount = cron.schedule('0 * * * *', () => { this.addCount = 0; });
+      logger.info('Rss 任务', this.alias, '初始化完毕');
+    }
   }
 
   _all (str, keys) {
@@ -73,7 +79,10 @@ class Rss {
     return a + b;
   };
 
-  async _downloadTorrent (url) {
+  async _downloadTorrent (url, _hash) {
+    if (_hash && fs.existsSync(path.join(__dirname, '../../torrents', _hash + '.torrent'))) {
+      return { hash: _hash, filepath: path.join(__dirname, '../../torrents', _hash + '.torrent') };
+    }
     const res = await util.requestPromise({
       url: url,
       method: 'GET',
@@ -105,6 +114,7 @@ class Rss {
   _fitConditions (_torrent, conditions) {
     let fit = true;
     const torrent = { ..._torrent };
+    torrent.description = torrent.description || '';
     for (const condition of conditions) {
       let value;
       switch (condition.compareType) {
@@ -180,8 +190,8 @@ class Rss {
 
   reloadRssRule () {
     logger.info('重新载入 Rss 规则', this.alias);
-    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1));
-    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1));
+    this.acceptRules = util.listRssRule().filter(item => (this._acceptRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
+    this.rejectRules = util.listRssRule().filter(item => (this._rejectRules.indexOf(item.id) !== -1)).sort((a, b) => +b.priority - +a.priority);
   }
 
   reloadPush () {
@@ -230,8 +240,8 @@ class Rss {
         };
       } else {
         speed = {
-          uploadSpeed: _client.maindata.uploadSpeed,
-          downloadSpeed: _client.maindata.downloadSpeed
+          uploadSpeed: _client.avgUploadSpeed,
+          downloadSpeed: _client.avgDownloadSpeed
         };
       }
       if (_client.maxUploadSpeed && speed.uploadSpeed > _client.maxUploadSpeed) {
@@ -328,16 +338,30 @@ class Rss {
         }
       }
       const fitRule = fitRules[0] || {};
-      const savePath = fitRule.savePath || this.savePath;
+      let savePath = fitRule.savePath || this.savePath;
+      if (savePath) {
+        savePath = savePath.replace('{RANDOM}', util.uuid.v4().replace(/-/g, ''));
+      }
       const category = fitRule.category || this.category;
       const client = fitRule.client ? global.runningClient[fitRule.client] : _client;
       try {
+        let truehash = '';
         this.addCount += 1;
         if (this.pushTorrentFile) {
-          const { filepath, hash } = await this._downloadTorrent(torrent.url);
+          const { filepath, hash } = await this._downloadTorrent(torrent.url, torrent.hash);
+          truehash = hash;
           await client.addTorrentByTorrentFile(filepath, hash, false, this.uploadLimit, this.downloadLimit, savePath, category, this.autoTMM, this.paused);
         } else {
-          await client.addTorrent(torrent.url, torrent.hash, false, this.uploadLimit, this.downloadLimit, savePath, category, this.autoTMM, this.paused);
+          if (this.useCustomRegex) {
+            const match = this.regexStr.match(/^\/(.*)\/([gimuy]*)$/);
+            if (match) {
+              const [, pattern, flags] = match;
+              const regex = new RegExp(pattern, flags);
+              await client.addTorrent(torrent.url.replace(regex, this.replaceStr), torrent.hash, false, this.uploadLimit, this.downloadLimit, savePath, category, this.autoTMM, this.paused);
+            }
+          } else {
+            await client.addTorrent(torrent.url, torrent.hash, false, this.uploadLimit, this.downloadLimit, savePath, category, this.autoTMM, this.paused);
+          }
         }
         try {
           await this.ntf.addTorrent(this._rss, client, torrent);
@@ -346,6 +370,10 @@ class Rss {
         }
         await util.runRecord('INSERT INTO torrents (hash, name, size, rss_id, link, category, record_time, add_time, record_type, record_note) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [torrent.hash, torrent.name, torrent.size, this.id, torrent.link, category, moment().unix(), moment().unix(), 1, '添加种子']);
+        if (truehash && torrent.hash !== truehash) {
+          await util.runRecord('INSERT INTO torrents (hash, name, size, rss_id, link, category, record_time, add_time, record_type, record_note) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [truehash, torrent.name, torrent.size, this.id, torrent.link, category, moment().unix(), moment().unix(), 1, '添加种子']);
+        }
       } catch (error) {
         logger.error(this.alias, '下载器', client.alias, '添加种子失败:', error.message);
         await util.runRecord('INSERT INTO torrents (hash, name, size, rss_id, link, record_time, record_type, record_note) values (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -359,27 +387,32 @@ class Rss {
     }
   }
 
-  async rss () {
-    const torrents = (await Promise.all(this.urls.map(url => rss.getTorrents(url)))).flat();
-    const availableClients = this.clientArr
-      .map(item => global.runningClient[item])
-      .filter(item => {
-        return !!item && !!item.status && !!item.maindata &&
-          (!this.maxClientUploadSpeed || this.maxClientUploadSpeed > item.maindata.uploadSpeed) &&
-          (!this.maxClientDownloadSpeed || this.maxClientDownloadSpeed > item.maindata.downloadSpeed) &&
-          (!this.maxClientDownloadCount || this.maxClientDownloadCount > item.maindata.leechingCount);
-      });
-    const firstClient = availableClients
-      .filter(item => {
-        return (!item.maxDownloadSpeed || item.maxDownloadSpeed > item.maindata.downloadSpeed) &&
-          (!item.maxUploadSpeed || item.maxUploadSpeed > item.maindata.uploadSpeed) &&
-          (!item.maxLeechNum || item.maxLeechNum > item.maindata.leechingCount) &&
-          (!item.minFreeSpace || item.minFreeSpace < item.maindata.freeSpaceOnDisk);
-      })
-      .sort((a, b) => (this.clientSortBy === 'freeSpaceOnDisk' ? -1 : 1) *
-        (a.maindata[this.clientSortBy] - b.maindata[this.clientSortBy])
-      )[0] || availableClients[0];
+  async rss (_torrents) {
+    let torrents = [];
+    if (_torrents) {
+      torrents = _torrents;
+    } else {
+      torrents = (await Promise.all(this.urls.map(url => rss.getTorrents(url)))).flat();
+    }
     for (const torrent of torrents) {
+      const availableClients = this.clientArr
+        .map(item => global.runningClient[item])
+        .filter(item => {
+          return !!item && !!item.status && !!item.maindata &&
+            (!this.maxClientUploadSpeed || this.maxClientUploadSpeed > item.avgUploadSpeed) &&
+            (!this.maxClientDownloadSpeed || this.maxClientDownloadSpeed > item.avgDownloadSpeed) &&
+            (!this.maxClientDownloadCount || this.maxClientDownloadCount > item.maindata.leechingCount);
+        });
+      const firstClient = availableClients
+        .filter(item => {
+          return (!item.maxDownloadSpeed || item.maxDownloadSpeed > item.avgDownloadSpeed) &&
+            (!item.maxUploadSpeed || item.maxUploadSpeed > item.avgUploadSpeed) &&
+            (!item.maxLeechNum || item.maxLeechNum > item.maindata.leechingCount) &&
+            (!item.minFreeSpace || item.minFreeSpace < item.maindata.freeSpaceOnDisk);
+        })
+        .sort((a, b) => (this.clientSortBy === 'freeSpaceOnDisk' ? -1 : 1) *
+          (a.maindata[this.clientSortBy] - b.maindata[this.clientSortBy])
+        )[0] || availableClients[0];
       const sqlRes = await util.getRecord('SELECT * FROM torrents WHERE hash = ? AND rss_id = ?', [torrent.hash, this.id]);
       if (sqlRes && sqlRes.id) continue;
       if (torrent.name.indexOf('[FROZEN]') !== -1) continue;
@@ -417,6 +450,64 @@ class Rss {
       }
     }
     this.lastRssTime = moment().unix();
+  }
+
+  async dryrun () {
+    const torrents = (await Promise.all(this.urls.map(url => rss.getTorrents(url)))).flat();
+    for (const torrent of torrents) {
+      let reject = false;
+      for (const rejectRule of this.rejectRules) {
+        if (this._fitRule(rejectRule, torrent)) {
+          torrent.status = '匹配到拒绝规则: ' + rejectRule.alias;
+          reject = true;
+          break;
+        }
+      }
+      if (reject) {
+        continue;
+      }
+      const fitRules = this.acceptRules.filter(item => this._fitRule(item, torrent));
+      if (this.acceptRules.length === 0) {
+        torrent.status = '无选择规则, 默认选中该种子';
+        continue;
+      } else if (fitRules.length === 0) {
+        torrent.status = '未匹配到规则';
+        continue;
+      } else {
+        torrent.status = '匹配到选择规则: ' + fitRules[0].alias;
+        continue;
+      }
+    }
+    return torrents;
+  }
+
+  async mikanSearch (name) {
+    const torrents = await util.mikanSearch(name);
+    for (const torrent of torrents) {
+      let reject = false;
+      for (const rejectRule of this.rejectRules) {
+        if (this._fitRule(rejectRule, torrent)) {
+          torrent.status = '匹配到拒绝规则: ' + rejectRule.alias;
+          reject = true;
+          break;
+        }
+      }
+      if (reject) {
+        continue;
+      }
+      const fitRules = this.acceptRules.filter(item => this._fitRule(item, torrent));
+      if (this.acceptRules.length === 0) {
+        torrent.status = '无选择规则, 默认选中该种子';
+        continue;
+      } else if (fitRules.length === 0) {
+        torrent.status = '未匹配到规则';
+        continue;
+      } else {
+        torrent.status = '匹配到选择规则: ' + fitRules[0].alias;
+        continue;
+      }
+    }
+    return torrents;
   }
 }
 module.exports = Rss;

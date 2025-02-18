@@ -79,7 +79,7 @@
           name="enable"
           extra="选择是否启用服务器"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="server.used" v-model:checked="server.enable">启用</a-checkbox>
+          <a-checkbox :disabled="server.used" v-model:checked="server.enable">启用</a-checkbox>
         </a-form-item>
         <a-form-item
           label="域名/IP"
@@ -98,9 +98,16 @@
         <a-form-item
           label="密码"
           name="password"
-          extra="填写 ssh 登录服务器所需的密码"
-          :rules="[{ required: true, message: '${label}不可为空! ' }]">
+          extra="填写 ssh 登录服务器所需的密码, 密码与密钥二选一即可。"
+          :rules="[{ validator: async (rule, value) => { if (server.password || server.privateKey) return; throw '密码和密钥至少填写一个!' } }]">
           <a-input size="small" v-model:value="server.password"/>
+        </a-form-item>
+        <a-form-item
+          label="密钥"
+          name="privateKey"
+          extra="填写 ssh 登录服务器所需的密钥, 密码与密钥二选一即可。"
+          :rules="[{ validator: async (rule, value) => { if (server.password || server.privateKey) return; throw '密码和密钥至少填写一个!' } }]">
+          <a-textarea v-model:value="server.privateKey" type="textarea" :rows="10"></a-textarea >
         </a-form-item>
         <a-form-item
           label="端口"
@@ -108,6 +115,12 @@
           extra="填写 ssh 登录服务器所需的端口"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-input size="small" v-model:value="server.port"/>
+        </a-form-item>
+        <a-form-item
+          label="固定网卡"
+          name="fixedInterface"
+          extra="填写希望显示速度信息的网卡接口, 例: enp1s0">
+          <a-input size="small" v-model:value="server.fixedInterface"/>
         </a-form-item>
         <a-form-item
           :wrapperCol="isMobile() ? { span:24 } : { span: 21, offset: 3 }">

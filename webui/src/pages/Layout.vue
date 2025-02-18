@@ -9,7 +9,7 @@
         mode="inline"
         style="height: calc(var(--vh, 1vh) * 100); overflow: auto; overflow-x: hidden; "
       >
-        <div class="logo">
+        <div class="logo" @click="gotoWiki">
           <div style="width: 32px; float: left;">
             <img src="/assets/images/logo.svg"/>
           </div>
@@ -90,9 +90,9 @@
         <div style="margin: 0 auto; width: calc(100% - 32px); position: absolute; display: inline-block">
           <div style="margin: 0 auto; width: 144px;">
             <div style="width: 24px; float: left;">
-              <img src="/assets/images/logo.svg"/>
+              <img style="background: rgba(255,255,255,0.2); border-radius: 4px;" src="/assets/images/logo.svg"/>
             </div>
-            <span style="font-size: 22px; padding-left: 6px;">
+            <span style="font-size: 22px; padding-left: 6px; line-height: 68px;">
               Vertex
             </span>
           </div>
@@ -135,6 +135,9 @@ export default {
         }
         this.openKeys = keys;
       }, 100);
+    },
+    async gotoWiki () {
+      window.open('https://wiki.vertex-app.top');
     }
   },
   async mounted () {
@@ -171,6 +174,7 @@ export default {
   height: 32px;
   margin: 24px auto;
   width: 148px;
+  cursor: pointer;
 }
 
 .user-badge {

@@ -4,6 +4,9 @@ const Site = require('../common/Site');
 const logger = require('../libs/logger');
 const moment = require('moment');
 const util = require('../libs/util');
+const OpenApiMod = require('./OpenApiMod');
+
+const openApiMod = new OpenApiMod();
 
 class SiteMod {
   add (options) {
@@ -69,7 +72,7 @@ class SiteMod {
   async list () {
     const doubanList = util.listDouban();
     const siteList = util.listSite()
-      .map(item => { return { ...item, used: doubanList.filter(i => i.sites.indexOf(item.name) !== -1).length !== 0 }; });
+      .map(item => { return { ...item, used: doubanList.filter(i => i.sites.indexOf(item.name) !== -1).length !== 0, index: global.SITE.siteUrlMap[item.name] }; });
     for (let site of siteList) {
       site = Object.assign(site, global.runningSite[site.name]?.info || {});
     }
@@ -172,6 +175,10 @@ class SiteMod {
       return siteList.filter(item => global.SITE.searchTorrentWrapper[item.name]).map(item => item.name);
     }
     return siteList.map(item => item.name);
+  }
+
+  async overview (options) {
+    return await openApiMod.siteInfo();
   }
 }
 

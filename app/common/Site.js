@@ -23,6 +23,7 @@ class Site {
     this.getDownloadLink = global.SITE.getDownloadLinkWrapper[this.site];
     this.torrentDownloadLink = global.SITE.torrentDownloadLinkMap[this.site];
     this.siteUrl = global.SITE.siteUrlMap[this.site];
+    this.index = global.SITE.siteUrlMap[this.site];
     this.siteId = global.SITE.siteIdMap[this.site];
     this.retryCount = 0;
     this.cron = site.cron || '0 */4 * * *';
@@ -43,24 +44,47 @@ class Site {
       upload: record.upload,
       download: record.download,
       seedingSize: record.seeding_size,
-      seeding: record.seeding_num,
+      seeding: +record.seeding_num,
       updateTime: record.update_time,
       leeching: 0
     };
   }
 
-  async _getDocument (url, origin = false, expire = 300) {
+  async _getDocument (url, origin = false, expire = 300, retCookies = false, headers) {
     const cache = await redis.get(`vertex:document:body:${url}`);
     if (!cache) {
-      const html = (await util.requestPromise({
+      const res = (await util.requestPromise({
         url: url,
         headers: {
-          cookie: this.cookie
+          cookie: this.cookie,
+          ...headers
         }
-      })).body;
-      if (origin) return html;
-      await redis.setWithExpire(`vertex:document:body:${url}`, html, expire);
-      const dom = new JSDOM(html);
+      }));
+      if (origin) return res.body;
+      if (url.indexOf('getusertorrentlistajax') !== -1) {
+        res.body = res.body
+          .replace(/ *href=".*?"/g, '')
+          .replace(/ *title=".*?"/g, '')
+          .replace(/ *class=".*?"/g, '')
+          .replace(/ *align=".*?"/g, '')
+          .replace(/ *id=".*?"/g, '')
+          .replace(/ *src=".*?"/g, '')
+          .replace(/ *alt=".*?"/g, '')
+          .replace(/ *color=".*?"/g, '')
+          .replace(/ *type=".*?"/g, '')
+          .replace(/ *onclick=".*?"/g, '')
+          .replace(/ *width=".*?"/g, '')
+          .replace(/ *<b>.*?<\/b>/g, '')
+          .replace(/ *style=".*?"/g, '');
+      }
+      await redis.setWithExpire(`vertex:document:body:${url}`, res.body, expire);
+      const dom = new JSDOM(res.body);
+      if (retCookies) {
+        return {
+          dom: dom.window.document,
+          cookie: res.headers['set-cookie']
+        };
+      }
       return dom.window.document;
     } else {
       if (origin) return cache;
@@ -107,7 +131,7 @@ class Site {
       this.info = info;
       this.retryCount = 0;
     } catch (e) {
-      logger.info(e);
+      logger.error(e);
       throw new Error(this.site + ' 站点数据抓取失败 (疑似是 Cookie 失效, 或绕过 CloudFlare 5s 盾失效)');
     }
     if (this.pullRemoteTorrent && global.panelKey) {

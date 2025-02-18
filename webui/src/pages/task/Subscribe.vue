@@ -80,7 +80,7 @@
           <a-checkbox-group style="width: 100%;" v-model:value="subscribe.sites">
             <a-row>
               <a-col v-for="site of sites" :span="8" :key="site.name">
-                <a-checkbox  v-model:value="site.name">{{ site.name }}</a-checkbox>
+                <a-checkbox v-model:value="site.name">{{ site.name }}</a-checkbox>
               </a-col>
             </a-row>
           </a-checkbox-group>
@@ -290,6 +290,18 @@
               </template>
             </a-row>
           </a-checkbox-group>
+        </a-form-item>
+        <a-form-item
+          label="默认集数"
+          name="defaultEpisodes"
+          extra="若豆瓣词条无集数信息，则按照默认集数处理, 仅支持剧集类型">
+          <a-input size="small" v-model:value="expandCategory.defaultEpisodes"/>
+        </a-form-item>
+        <a-form-item
+          label="默认取消年份限制"
+          name="defaultrestrictYear"
+          extra="默认限制年份, 勾选后取消限制">
+          <a-checkbox v-model:checked="expandCategory.defaultrestrictYear">取消限制年份</a-checkbox>
         </a-form-item>
       </a-form>
     </div>

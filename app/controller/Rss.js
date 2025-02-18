@@ -87,5 +87,56 @@ class Rss {
       });
     }
   };
+
+  async dryrun (req, res) {
+    const options = req.body;
+    try {
+      const r = await rssMod.dryrun(options);
+      res.send({
+        success: true,
+        data: r
+      });
+    } catch (e) {
+      logger.error(e);
+      res.send({
+        success: false,
+        message: e.message
+      });
+    }
+  };
+
+  async mikanSearch (req, res) {
+    const options = req.body;
+    try {
+      const r = await rssMod.mikanSearch(options);
+      res.send({
+        success: true,
+        data: r
+      });
+    } catch (e) {
+      logger.error(e);
+      res.send({
+        success: false,
+        message: e.message
+      });
+    }
+  };
+
+  async mikanPush (req, res) {
+    const options = req.body;
+    try {
+      const r = await rssMod.mikanPush(options);
+      res.send({
+        success: true,
+        message: r
+      });
+    } catch (e) {
+      logger.error(e);
+      res.send({
+        success: false,
+        message: e.message
+      });
+    }
+  };
 }
 module.exports = Rss;

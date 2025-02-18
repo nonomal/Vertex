@@ -1,5 +1,6 @@
 const util = require('./util');
 const redis = require('./redis');
+const logger = require('./logger');
 const { JSDOM } = require('jsdom');
 
 const getDocument = async function (url, cookie) {
@@ -29,6 +30,28 @@ const _free = async function (url, cookie) {
   return state && ['free', 'twoupfree'].indexOf(state.className) !== -1;
 };
 
+// cookie = apikey
+const _freeMTeam = async function (url, cookie) {
+  const tid = url.match(/\/(\d+)/)[1];
+  // const host = new URL(url).host;
+  const { body } = await util.requestPromise({
+    url: 'https://api.m-team.cc/api/torrent/detail',
+    method: 'POST',
+    headers: {
+      'x-api-key': cookie
+    },
+    formData: {
+      id: tid
+    },
+    json: true
+  });
+  if (!body.data) {
+    logger.error(body);
+    throw new Error('疑似登录状态失效, 请检查 Api Key');
+  }
+  return body.data.status?.discount.indexOf('FREE') !== -1;
+};
+
 const _freeOpencd = async function (url, cookie) {
   const d = await getDocument(url, cookie);
   if (d.body.innerHTML.indexOf('userdetails') === -1) {
@@ -46,7 +69,7 @@ const _freeHDChina = async function (url, cookie) {
   }
   const tid = url.match(/id=(\d*)/)[1];
   const csrf = d.querySelector('meta[name=x-csrf]').content;
-  const promotion = await requestPromise({
+  const promotion = await util.requestPromise({
     url: 'https://hdchina.org/ajax_promotion.php',
     method: 'POST',
     headers: {
@@ -99,6 +122,70 @@ const _freeHDBits = async function (url, cookie) {
   return state;
 };
 
+const _freeHDArea = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('h1#top font[class]');
+  return state && ['free', 'twoupfree'].indexOf(state.className) !== -1;
+};
+
+const _freeByrPT = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('#share .free');
+  return state && ['free', 'twoupfree'].indexOf(state.className) !== -1;
+};
+
+const _freeHHanClub = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('.promotion-tag');
+  return state && (state.className || '').includes('free');
+};
+
+const _freeHUDBT = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('div[class=minor-list] img[class=free]') ||
+    d.querySelector('div[class=minor-list] img[class=twoupfree]');
+  return state;
+};
+
+const _freePuTao = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('b font[class]');
+  return state && ['free', 'twoupfree'].indexOf(state.className) !== -1;
+};
+
+const _freeBitPorn = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('userdetails') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = Array.from(d.querySelectorAll('span.stic2')).some(el => el.textContent.trim() === '2X Free' || el.textContent.trim() === 'Free');
+  return state;
+};
+
+const _freeLuminance = async function (url, cookie) {
+  const d = await getDocument(url, cookie);
+  if (d.body.innerHTML.indexOf('nav_userinfo') === -1) {
+    throw new Error('疑似登录状态失效, 请检查 Cookie');
+  }
+  const state = d.querySelector('img[alt="Freeleech"]');
+  return state;
+};
+
 const freeWrapper = {
   'pt.btschool.club': _free,
   'club.hares.top': _freeHaresClub,
@@ -107,6 +194,7 @@ const freeWrapper = {
   'hdsky.me': _free,
   'ourbits.club': _free,
   'chdbits.co': _free,
+  'ptchdbits.co': _free,
   'audiences.me': _free,
   'www.hddolby.com': _free,
   'pthome.net': _free,
@@ -114,14 +202,34 @@ const freeWrapper = {
   'et8.org': _free,
   'hdfans.org': _free,
   'www.nicept.net': _free,
-  'kp.m-team.cc': _free,
   'discfan.net': _free,
   'piggo.me': _free,
+  'hdatmos.club': _free,
+  'pt.msg.vg': _free,
+  'sharkpt.net': _free,
+  'azusa.wiki': _free,
+  'kamept.com': _free,
+  'pt.eastgame.org': _free,
+  'pt.0ff.cc': _free,
+  'wintersakura.net': _free,
   'open.cd': _freeOpencd,
   'www.open.cd': _freeOpencd,
   'totheglory.im': _freeToTheGlory,
   'u2.dmhy.org': _freeDmhy,
-  'hdbits.org': _freeHDBits
+  'hdbits.org': _freeHDBits,
+  'www.hdarea.co': _freeHDArea,
+  'www.hdarea.club': _freeHDArea,
+  'hdarea.club': _freeHDArea,
+  'byr.pt': _freeByrPT,
+  'hhanclub.top': _freeHHanClub,
+  'zeus.hamsters.space': _freeHUDBT,
+  'hudbt.hust.edu.cn': _freeHUDBT,
+  'bitporn.eu': _freeBitPorn,
+  'pt.sjtu.edu.cn': _freePuTao,
+  'www.empornium.is': _freeLuminance,
+  'www.empornium.sx': _freeLuminance,
+  'www.pixelcove.me': _freeLuminance,
+  'www.cathode-ray.tube': _freeLuminance
 };
 
 const _hr = async function (url, cookie) {
@@ -133,7 +241,7 @@ const _hr = async function (url, cookie) {
   return hr;
 };
 
-const _hrToCHDBits = async function (url, cookie) {
+const _hrCHDBits = async function (url, cookie) {
   const d = await getDocument(url, cookie);
   if (d.body.innerHTML.indexOf('userdetails') === -1) {
     throw new Error('疑似登陆状态失效, 请检查 Cookie');
@@ -143,7 +251,7 @@ const _hrToCHDBits = async function (url, cookie) {
   return hr3 !== -1 || hr5 !== -1;
 };
 
-const _hrToTheGlory = async function (url, cookie) {
+const _hrTheGlory = async function (url, cookie) {
   const d = await getDocument(url, cookie);
   if (d.body.innerHTML.indexOf('userdetails') === -1) {
     throw new Error('疑似登录状态失效, 请检查 Cookie');
@@ -157,12 +265,19 @@ const hrWrapper = {
   'hdhome.org': _hr,
   'ourbits.club': _hr,
   'piggo.me': _hr,
-  'totheglory.im': _hrToTheGlory,
-  'chdbits.co': _hrToCHDBits
+  'hhanclub.top': _hr,
+  'sharkpt.net': _hr,
+  'totheglory.im': _hrTheGlory,
+  'chdbits.co': _hrCHDBits,
+  'ptchdbits.co': _hrCHDBits,
+  'audiences.me': _hr
 };
 
 exports.free = async (url, cookie) => {
   const host = new URL(url).host;
+  if (host.includes('m-team')) {
+    return await _freeMTeam(url, cookie);
+  }
   if (freeWrapper[host]) {
     return await freeWrapper[host](url, cookie);
   }

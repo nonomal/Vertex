@@ -1,6 +1,5 @@
 const Multipart = require('connect-multiparty');
 const session = require('express-session');
-const ws = require('express-ws');
 const proxy = require('express-http-proxy');
 const redis = require('redis');
 const path = require('path');
@@ -30,21 +29,24 @@ const checkAuth = async function (req, res, next) {
     '/api/user/login',
     '/api/setting/getBackground.less',
     '/api/setting/getCss.css',
-    '/user/login'
+    '/user/login',
+    '/service-worker.js',
+    '/service-worker.js.map'
   ];
   if (req.session?.user && ['/', '/user/login'].includes(pathname)) {
     return res.redirect(302, '/index');
   }
   if (excludePath.includes(pathname) ||
     pathname.startsWith('/assets') ||
+    pathname.startsWith('/workbox') ||
     pathname.startsWith('/api/openapi') ||
     pathname === '/favicon.ico') {
     return next();
   }
-  if (!req.session.user && !pathname.startsWith('/api')) {
+  if (!req.session?.user && !pathname.startsWith('/api')) {
     return res.redirect(302, '/user/login');
   }
-  if (!req.session.user) {
+  if (!req.session?.user) {
     res.status(401);
     return res.send({
       success: false,
@@ -110,7 +112,7 @@ const siteProxy = function (req, res, next) {
       return proxyReqOpts;
     },
     userResDecorator: function (proxyRes, proxyResData, userReq, userRes) {
-      if (proxyRes.headers['content-type'].indexOf('text/html') !== -1) {
+      if (proxyRes.headers['content-type']?.indexOf('text/html') !== -1) {
         proxyResData = proxyResData.toString('utf8').replace(/src=(['"])\//g, 'src=$1').replace(/href=(["'])\//g, 'href=$1');
       }
       return proxyResData;
@@ -120,7 +122,6 @@ const siteProxy = function (req, res, next) {
 };
 
 module.exports = function (app, express, router) {
-  ws(app);
   app.use(session({
     genid: () => util.uuid.v4().replace(/-/g, ''),
     resave: false,
@@ -168,6 +169,7 @@ module.exports = function (app, express, router) {
   router.get('/site/search', ctrl.Site.search);
   router.post('/site/pushTorrent', ctrl.Site.pushTorrent);
   router.get('/site/listSite', ctrl.Site.listSite);
+  router.get('/site/overview', ctrl.Site.overview);
 
   router.get('/downloader/list', ctrl.Client.list);
   router.get('/downloader/listTop10', ctrl.Client.listTop10);
@@ -182,17 +184,23 @@ module.exports = function (app, express, router) {
   router.post('/script/add', ctrl.Script.add);
   router.post('/script/modify', ctrl.Script.modify);
   router.post('/script/delete', ctrl.Script.delete);
+  router.post('/script/run', ctrl.Script.run);
 
   router.get('/watch/list', ctrl.Watch.list);
+  router.get('/watch/listHistory', ctrl.Watch.listHistory);
   router.post('/watch/add', ctrl.Watch.add);
   router.post('/watch/modify', ctrl.Watch.modify);
   router.post('/watch/delete', ctrl.Watch.delete);
+  router.post('/watch/deleteRecord', ctrl.Watch.deleteRecord);
 
   router.get('/rss/list', ctrl.Rss.list);
   router.post('/rss/add', ctrl.Rss.add);
+  router.post('/rss/dryrun', ctrl.Rss.dryrun);
   router.post('/rss/modify', ctrl.Rss.modify);
   router.post('/rss/delete', ctrl.Rss.delete);
   router.post('/rss/deleteRecord', ctrl.Rss.deleteRecord);
+  router.post('/rss/mikanSearch', ctrl.Rss.mikanSearch);
+  router.post('/rss/mikanPush', ctrl.Rss.mikanPush);
 
   router.get('/subscribe/list', ctrl.Douban.list);
   router.post('/subscribe/add', ctrl.Douban.add);
@@ -271,6 +279,7 @@ module.exports = function (app, express, router) {
   router.get('/setting/import', ctrl.Setting.import);
   router.get('/setting/getProxy', ctrl.Setting.getProxy);
   router.post('/setting/saveProxy', ctrl.Setting.saveProxy);
+  router.post('/setting/clearHistory', ctrl.Setting.clearHistory);
 
   router.all('/openapi/:apiKey/plex', ctrl.Webhook.plex);
   router.all('/openapi/:apiKey/emby', ctrl.Webhook.emby);
@@ -279,12 +288,23 @@ module.exports = function (app, express, router) {
   router.all('/openapi/:apiKey/slack', ctrl.Webhook.slack);
 
   router.all('/openapi/:apiKey/widget', ctrl.OpenApi.widget);
+  router.all('/openapi/:apiKey/siteInfo', ctrl.OpenApi.siteInfo);
 
   app.use('/api', router);
   app.use('/proxy/client/:client', clientProxy);
   app.use('/proxy/site/:site', siteProxy);
   app.use('/assets/styles/theme.less', (req, res) => {
-    return res.download(path.join(__dirname, '../static/assets/styles/' + (global.theme || 'follow') + '.less'));
+    const _path = path.join(__dirname, '../static/assets/styles/' + (global.theme || 'follow') + '.less');
+    if (!_path.startsWith(path.join(__dirname, '../static/'))) {
+      res.status(404);
+      return res.end('Not Found');
+    }
+    return res.download(_path, (err) => {
+      if (!err) return;
+      logger.error(err);
+      res.status(404);
+      return res.end('Not Found');
+    });
   });
   app.use('*', (req, res, next) => {
     const pathname = req._parsedOriginalUrl.pathname;
@@ -292,17 +312,26 @@ module.exports = function (app, express, router) {
       res.status(404);
       return res.end('Not Found');
     }
-    if (pathname.startsWith('/assets')) {
-      try {
-        return res.download(path.join(__dirname, '../static', pathname));
-      } catch (err) {
-        logger.error(err);
+    if (pathname.startsWith('/assets') || pathname.startsWith('/workbox') || pathname.startsWith('/service-worker.js')) {
+      const _path = path.join(__dirname, '../static', pathname);
+      if (!_path.startsWith(path.join(__dirname, '../static/'))) {
         res.status(404);
         return res.end('Not Found');
       }
+      return res.download(_path, (err) => {
+        if (!err) return;
+        logger.error(err);
+        res.status(404);
+        return res.end('Not Found');
+      });
     }
     try {
-      res.send(fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf-8'));
+      let indexHTML = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf-8');
+      if (global.theme === 'dark') {
+        indexHTML = indexHTML.replace('<meta name="theme-color" content="#0099E3">', '<meta name="theme-color" content="#000">');
+      }
+      indexHTML = indexHTML.replace('VERTEX-THEME', global.theme);
+      res.send(indexHTML);
     } catch (err) {
       logger.error(err);
       res.status(404);

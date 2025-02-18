@@ -15,10 +15,19 @@
       </template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.dataIndex === 'downloader'">
-          {{ (downloaders.filter(item => item.id === record.client)[0] || {}).alias || '' }}
+          <a-select size="small" :allowClear="true" v-model:value="record.client" style="width: 100%;" @change="modifyRssRuleDownloader(record)">
+            <template v-for="downloader of downloaders" :key="downloader.id">
+              <a-select-option
+                :value="downloader.id">
+                {{ downloader.alias }}
+              </a-select-option>
+            </template>
+          </a-select>
         </template>
         <template v-if="column.title === '操作'">
           <span>
+            <a @click="cloneClick(record)">克隆</a>
+            <a-divider type="vertical" />
             <a @click="modifyClick(record)">编辑</a>
             <a-divider type="vertical" />
             <a-popover title="删除?" trigger="click" :overlayStyle="{ width: '84px', overflow: 'hidden' }">
@@ -75,6 +84,12 @@
               </a-select-option>
             </template>
           </a-select>
+        </a-form-item>
+        <a-form-item
+          label="优先级"
+          name="priority"
+          extra="优先级最高的规则最先匹配, 留空则按默认顺序">
+          <a-input size="small" v-model:value="rssRule.priority"/>
         </a-form-item>
         <a-form-item
           label="类型"
@@ -201,6 +216,9 @@ export default {
       }, {
         name: '种子大小',
         key: 'size'
+      }, {
+        name: '种子简介',
+        key: 'description'
       }],
       condition: {
         key: '',
@@ -241,6 +259,16 @@ export default {
         this.$message().error(e.message);
       }
     },
+    async modifyRssRuleDownloader (rssRule) {
+      try {
+        await this.$api().rssRule.modify({ ...rssRule });
+        this.$message().success((rssRule.id ? '编辑' : '新增') + '成功, 列表正在刷新...');
+        setTimeout(() => this.listRssRule(), 1000);
+        this.clearRssRule();
+      } catch (e) {
+        this.$message().error(e.message);
+      }
+    },
     async modifyRssRule () {
       try {
         await this.$api().rssRule.modify({ ...this.rssRule });
@@ -253,6 +281,9 @@ export default {
     },
     modifyClick (row) {
       this.rssRule = { ...row };
+    },
+    cloneClick (row) {
+      this.rssRule = { ...row, id: undefined };
     },
     async deleteRssRule (row) {
       if (row.used) {

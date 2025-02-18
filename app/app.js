@@ -2,6 +2,9 @@ const express = require('express');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+const ws = require('express-ws');
 const app = express();
 const router = express.Router();
 const cron = require('node-cron');
@@ -23,8 +26,6 @@ const config = require('./libs/config');
 const { execSync } = require('child_process');
 logger.use(app);
 
-require('./routes/router.js')(app, express, router);
-
 const initPush = function () {
   const webhookPush = util.listPush().filter(item => item.id === global.webhookPushTo)[0];
   if (webhookPush) {
@@ -41,7 +42,7 @@ const init = function () {
     try {
       await util.runRecord('delete from torrent_flow where time < ?', [moment().unix() - 1]);
       await util.runRecord('delete from tracker_flow where time < ?', [moment().unix() - 7 * 24 * 3600]);
-      execSync('rm /tmp/Vertex-backups-*');
+      execSync('rm -f /tmp/Vertex-backups-*');
     } catch (e) {
       logger.error(e);
     }
@@ -71,16 +72,25 @@ const init = function () {
   global.wechatProxy = setting.wechatProxy;
   global.checkFinishCron = setting.checkFinishCron || '30 * * * * *';
   global.userAgent = setting.userAgent;
+  global.ignoreError = setting.ignoreError;
+  global.ignoreDependCheck = setting.ignoreDependCheck;
   global.webhookPushTo = setting.webhookPushTo;
   global.doubanPush = setting.doubanPush;
   global.apiKey = setting.apiKey;
   global.tmdbApiKey = setting.tmdbApiKey;
+  global.trustVertexPanel = setting.trustVertexPanel;
   global.transparent = setting.transparent;
   global.background = setting.background;
   global.wechatCover = setting.wechatCover;
   global.embyCover = setting.embyCover;
   global.plexCover = setting.plexCover;
-  global.theme = setting.theme;
+  global.theme = setting.theme || 'light';
+  global.siteInfo = setting.siteInfo || {
+    hide: [],
+    hideName: [],
+    watermark: 'vertex'
+  };
+  global.trustAllCerts = setting.trustAllCerts;
   global.menu = setting.menu || [];
   global.dashboardContent = setting.dashboardContent || [];
   global.wechatToken = setting.wechatToken;
@@ -139,6 +149,8 @@ const init = function () {
       global.runningIRC[irc.id] = new IRC(irc);
     }
   }
+  // cookiecloud
+  util.initCookieCloud();
 };
 
 (async () => {
@@ -147,7 +159,27 @@ const init = function () {
   } catch (e) {
     logger.error('初始化任务报错\n', e);
   }
-  app.listen(process.env.PORT, () => {
-    logger.info('Server started, listening', process.env.PORT);
-  });
+  try {
+    const server = http.createServer(app).listen(process.env.PORT);
+    ws(app, server);
+    logger.info('HTTP 服务器启动, 监听端口: ', process.env.PORT);
+  } catch (e) {
+    logger.error(e);
+    logger.error('HTTP 服务器启动失败, 监听端口: ', process.env.PORT);
+  }
+  if (process.env.HTTPS_ENABLE === 'true') {
+    try {
+      const options = {
+        key: fs.readFileSync(path.join(__dirname, './data/ssl/https.key')),
+        cert: fs.readFileSync(path.join(__dirname, './data/ssl/https.crt'))
+      };
+      const server = https.createServer(options, app).listen(process.env.HTTPS_PORT);
+      ws(app, server);
+      logger.info('HTTPS 服务器启动, 监听端口: ', process.env.HTTPS_PORT);
+    } catch (e) {
+      logger.error(e);
+      logger.error('HTTPS 服务器启动失败, 监听端口: ', process.env.HTTPS_PORT);
+    }
+  }
+  require('./routes/router.js')(app, express, router);
 })();

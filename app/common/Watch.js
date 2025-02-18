@@ -73,7 +73,7 @@ class Watch {
             type = this.type;
             year = '';
           } else {
-            const scrapeRes = await util.scrapeNameByFile(_name || torrent.name, this.type === 'series' ? 'tv' : this.type ? 'movie' : '', true);
+            const scrapeRes = await util.scrapeNameByFile(_name || torrent.name, this.type === 'series' ? 'tv' : this.type ? 'movie' : '', true, !!forceScrape);
             name = scrapeRes.name;
             year = scrapeRes.year;
             type = scrapeRes.type;
@@ -180,12 +180,13 @@ class Watch {
             suffixKeys.push(key);
           }
         }
-        const suffix = suffixKeys[0] ? '-' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
+        const suffix = suffixKeys[0] ? '.' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
         let group = '';
         if (linkRule.group) {
           group = (filename.match(/[-￡][^-￡]*?$/) || [''])[0].replace(/[-￡]/, '-');
         }
         const fileExt = path.extname(file.name);
+        file.name = file.name.replace(/\\/g, '/');
         group = group.replace(fileExt, '');
         const linkFilePath = path.join(linkRule.linkFilePath, this.libraryPath.split(':')[1], `${seriesName}(${year})`, season).replace(/'/g, '\\\'');
         const linkFile = path.join(linkFilePath, prefix + season + episode + suffix + group + fileExt).replace(/'/g, '\\\'');
@@ -194,7 +195,12 @@ class Watch {
         const command = `${linkRule.umask ? 'umask ' + linkRule.umask + ' && ' : ''}mkdir -p $'${linkFilePath}' && ln -${linkMode} $'${targetFile}' $'${linkFile}'`;
         logger.watch(this.alias, '执行链接命令', command);
         try {
-          await global.runningServer[linkRule.server].run(command);
+          if (linkRule.local) {
+            await util.exec(command, { shell: '/bin/bash' });
+          } else {
+            await global.runningServer[linkRule.server].run(command);
+          }
+          global.linkMapping[torrent.hash].push((linkRule.server || '$local$') + '####' + linkFile);
         } catch (e) {
           logger.error(e);
           isError = true;
@@ -217,22 +223,27 @@ class Watch {
             suffixKeys.push(key);
           }
         }
-        const suffix = suffixKeys[0] ? '-' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
+        const suffix = suffixKeys[0] ? '.' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
         let group = '';
         if (linkRule.group) {
           group = (filename.match(/[-￡][^-￡]*?$/) || [''])[0].replace(/[-￡]/, '-');
         }
         const fileExt = path.extname(filename);
+        file.name = file.name.replace(/\\/g, '/');
         group = group.replace(fileExt, '');
         const linkFilePath = path.join(linkRule.linkFilePath, this.libraryPath.split(':')[0], `${movieName}${_year}`).replace(/'/g, '\\\'');
-        const linkFile = path.join(linkFilePath, `${movieName}${_year}${suffix + group}${fileExt}`).replace(/'/g, '\\\'');
+        const linkFile = path.join(linkFilePath, `${movieName}${_year}${suffix + group}${fileExt}`.replace(/'/g, '\\\''));
         const targetFile = path.join(torrent.savePath.replace(linkRule.targetPath.split('##')[0], linkRule.targetPath.split('##')[1]), file.name).replace(/'/g, '\\\'');
         const linkMode = linkRule.hardlink ? 'f' : 'sf';
         const command = `${linkRule.umask ? 'umask ' + linkRule.umask + ' && ' : ''}mkdir -p $'${linkFilePath}' && ln -${linkMode} $'${targetFile}' $'${linkFile}'`;
         logger.watch(this.alias, '执行链接命令', command);
         try {
-          await global.runningServer[linkRule.server].run(command);
-          global.linkMapping[torrent.hash].push(linkRule.server + '####' + linkFile);
+          if (linkRule.local) {
+            await util.exec(command, { shell: '/bin/bash' });
+          } else {
+            await global.runningServer[linkRule.server].run(command);
+          }
+          global.linkMapping[torrent.hash].push((linkRule.server || '$local$') + '####' + linkFile);
         } catch (e) {
           logger.error(e);
           isError = true;
@@ -288,14 +299,18 @@ class Watch {
       const pathsKeepTopDir = [_linkRule.linkFilePath, libraryPath, path.dirname(file._name)];
       const fileBasename = path.basename(filePathname);
       const linkFilePath = path.join(...(keepTopDir ? pathsKeepTopDir : paths)).replace(/'/g, '\\\'');
-      const linkFile = path.join(linkFilePath, fileBasename).replace(/'/g, '\\\'');
+      const linkFile = path.join(linkFilePath, fileBasename.replace(/'/g, '\\\''));
       const targetFile = filePathname.replace(/'/g, '\\\'');
       const linkMode = _linkRule.hardlink ? 'f' : 'sf';
       const command = `${_linkRule.umask ? 'umask ' + _linkRule.umask + ' && ' : ''}mkdir -p $'${linkFilePath}' && ln -${linkMode} $'${targetFile}' $'${linkFile}'`;
       logger.binge('手动链接', '执行链接命令', command);
       try {
-        await global.runningServer[_linkRule.server].run(command);
-        global.linkMapping[torrent.hash].push(_linkRule.server + '####' + linkFile);
+        if (_linkRule.local) {
+          await util.exec(command, { shell: '/bin/bash' });
+        } else {
+          await global.runningServer[_linkRule.server].run(command);
+        }
+        global.linkMapping[torrent.hash].push((_linkRule.server || '$local$') + '####' + linkFile);
       } catch (e) {
         logger.error(e);
         isError = true;
@@ -324,6 +339,11 @@ class Watch {
       delete global.runningWatch[this.id];
     }
   }
+
+  delHistory (hash) {
+    delete this.torrents[hash];
+    this._saveSet();
+  };
 }
 
 module.exports = Watch;

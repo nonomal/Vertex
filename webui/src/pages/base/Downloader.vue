@@ -15,8 +15,7 @@
       </template>
       <template #bodyCell="{ column, record }">
         <template v-if="column.dataIndex === 'enable'">
-          <a-tag color="success" v-if="record.enable">启用</a-tag>
-          <a-tag color="error" v-if="!record.enable">禁用</a-tag>
+          <a-switch @change="enableDownloader(record)" :disabled="record.used" v-model:checked="record.enable" checked-children="启用" un-checked-children="禁用"/>
         </template>
         <template v-if="column.dataIndex === 'autoDelete'">
           <a-tag color="success" v-if="record.autoDelete">启用</a-tag>
@@ -86,16 +85,17 @@
           name="enable"
           extra="选择是否启用下载器"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
-          <a-checkbox :disable="downloader.used" v-model:checked="downloader.enable">启用</a-checkbox>
+          <a-checkbox :disabled="downloader.used" v-model:checked="downloader.enable">启用</a-checkbox>
         </a-form-item>
         <a-form-item
           label="下载器类型"
           name="type"
-          extra="下载器类型, 目前仅支持 qBittorrent 与 Transmission"
+          extra="下载器类型, 目前完整支持 qBittorrent, Deluge 和 Transmission 不完全支持"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-select size="small" v-model:value="downloader.type"  >
             <a-select-option value="qBittorrent">qBittorrent</a-select-option>
             <a-select-option value="Transmission">Transmission</a-select-option>
+            <a-select-option value="deluge">Deluge</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item
@@ -165,7 +165,7 @@
         <a-form-item
           label="自动汇报"
           name="autoReannounce"
-          extra="自动在种子添加后的 5 分钟内每分钟汇报一次, 获取更多 Peers"
+          extra="自动在种子添加后的第 5 分钟时汇报一次, 获取更多 Peers"
           :rules="[{ required: true, message: '${label}不可为空! ' }]">
           <a-checkbox v-model:checked="downloader.autoReannounce">自动汇报</a-checkbox>
         </a-form-item>
@@ -261,6 +261,19 @@
         </a-form-item>
         <a-form-item
           v-if="downloader.autoDelete"
+          label="拒绝删种规则"
+          name="rejectDeleteRules"
+          extra="拒绝删种规则, 种子状态符合其中一个时该种子不会被删除">
+          <a-checkbox-group style="width: 100%;" v-model:value="downloader.rejectDeleteRules">
+            <a-row>
+              <a-col v-for="deleteRule of deleteRules" :span="8" :key="deleteRule.id">
+                <a-checkbox  v-model:value="deleteRule.id">{{ deleteRule.alias }}</a-checkbox>
+              </a-col>
+            </a-row>
+          </a-checkbox-group>
+        </a-form-item>
+        <a-form-item
+          v-if="downloader.autoDelete"
           label="删种规则"
           name="deleteRules"
           extra="删种规则, 种子状态符合其中一个时即触发删除种子操作"
@@ -309,7 +322,7 @@ export default {
       }, {
         title: '自动删种',
         dataIndex: 'autoDelete',
-        width: 20
+        width: 15
       }, {
         title: '状态',
         dataIndex: 'status',
@@ -374,7 +387,7 @@ export default {
     async listDeleteRule () {
       try {
         const res = await this.$api().deleteRule.list();
-        this.deleteRules = res.data;
+        this.deleteRules = res.data.sort((a, b) => a.alias.localeCompare(b.alias));
       } catch (e) {
         this.$message().error(e.message);
       }
@@ -406,6 +419,16 @@ export default {
         await this.$api().downloader.delete(row.id);
         this.$message().success('删除成功, 列表正在刷新...');
         await this.listDownloader();
+      } catch (e) {
+        this.$message().error(e.message);
+      }
+    },
+    async enableDownloader (record) {
+      try {
+        await this.$api().downloader.modify({ ...record });
+        this.$message().success('修改成功, 列表正在刷新...');
+        setTimeout(() => this.listDownloader(), 1000);
+        this.clearDownloader();
       } catch (e) {
         this.$message().error(e.message);
       }

@@ -42,9 +42,9 @@ class Douban {
     this.selectTorrentToday = {};
     this.wishes = (util.listDoubanSet().filter(item => item.id === this.id)[0] || {}).wishes || [];
     for (const wish of this.wishes) {
-      if (!wish.downloaded) {
+      if (!wish.downloaded && !this.refreshWishJobs[wish.id]) {
         this.refreshWishJobs[wish.id] = cron.schedule(this.defaultRefreshCron, () => this._refreshWish(wish.id));
-        if (this.advancedMode) {
+        if (this.advancedMode && !this.searchRemoteTorrentJobs[wish.id]) {
           this.searchRemoteTorrentJobs[wish.id] = cron.schedule('*/2 * * * *', () => this._refreshWish(wish.id, true));
         }
       }
@@ -71,8 +71,9 @@ class Douban {
   };
 
   async _searchRemoteTorrents (keyword) {
+    const ids = this.sites.map(i => global.runningSite[i].siteId).filter(item => item);
     const result = (await util.requestPromise({
-      url: `https://dash.vertex-app.top/api/torrent/search?keyword=${encodeURIComponent(keyword)}&apiKey=${global.panelKey}`
+      url: `https://dash.vertex-app.top/api/torrent/search?keyword=${encodeURIComponent(keyword)}&apiKey=${global.panelKey}&site=${JSON.stringify(ids)}`
     })).body;
     return result;
   };
@@ -231,7 +232,7 @@ class Douban {
     if (!wish.id) {
       let newWish = {
         name: '影视剧名',
-        link: 'https://wiki.vertex.icu',
+        link: 'https://wiki.vertex-app.top',
         poster: 'https://pic.lswl.in/images/2022/07/10/5ae104f82f39eb4059861393ef24d440.png',
         id: util.uuid.v4(),
         rating: {
@@ -247,6 +248,9 @@ class Douban {
         searchKey: ''
       };
       newWish = Object.assign(newWish, wish);
+      if (!newWish.episodes) {
+        delete newWish.episodes;
+      }
       this.wishes.push(newWish);
       this._saveSet();
       return true;
@@ -454,19 +458,32 @@ class Douban {
             continue;
           }
           wish.tag = fitTag[0];
+          if (this.categories[wish.tag].defaultrestrictYear) {
+            wish.restrictYear = true;
+          }
           const episodes = wish.episodes;
           if (episodes.length !== 0) {
             wish.episodes = +episodes[episodes.length - 1].href.match(/episode\/(\d+)/)[1];
             wish.episodeNow = 0;
           } else {
             delete wish.episodes;
+            if (this.categories[wish.tag].defaultEpisodes) {
+              wish.episodes = +this.categories[wish.tag].defaultEpisodes;
+              wish.episodeNow = 0;
+            }
           }
           try {
             this.wishes.push(wish);
             this.ntf.addDoubanWish(this.alias, wish);
             if (this.categories[wish.tag].autoSearch !== false) {
               this.updateWish(wish);
-              this.refreshWish(wish.id);
+              (async () => {
+                try {
+                  await this.refreshWish(wish.id);
+                } catch (e) {
+                  logger.error(e);
+                }
+              })();
             } else {
               logger.binge('豆瓣账户:', this.alias, '项目', wish.name, '首次添加不刷新', '跳过');
             }
@@ -603,7 +620,7 @@ class Douban {
         if (linkRule.excludeKeys && linkRule.excludeKeys.split(',').some(item => filename.indexOf(item) !== -1)) continue;
         const seriesName = wish.name.split('/')[0].trim().replace(/ +/g, '.').replace(/\.?[第].*[季部]/, '').replace(/\..*篇[\d一二三四五六七八九十]*/, '');
         let season = (filename.match(/[. ]S(\d+)/) || [0, null])[1];
-        let episode = util.scrapeEpisodeByFilename(filename);
+        let episode = util.scrapeEpisodeByFilename(filename, wish.removeKeyword);
         if (!episode) {
           continue;
         }
@@ -659,16 +676,21 @@ class Douban {
           group = (filename.match(/[-￡][^-￡]*?$/) || [''])[0].replace(/[-￡]/, '-');
         }
         const fileExt = path.extname(file.name);
+        file.name = file.name.replace(/\\/g, '/');
         group = group.replace(fileExt, '');
         const linkFilePath = path.join(linkRule.linkFilePath, category.libraryPath, seriesName, season).replace(/'/g, '\\\'');
-        const linkFile = path.join(linkFilePath, prefix + season + episode + suffix + group + fileExt).replace(/'/g, '\\\'');
+        const linkFile = path.join(linkFilePath, (prefix + season + episode + suffix + group + fileExt).replace(/'/g, '\\\''));
         const targetFile = path.join(torrent.savePath.replace(linkRule.targetPath.split('##')[0], linkRule.targetPath.split('##')[1]), file.name).replace(/'/g, '\\\'');
         const linkMode = linkRule.hardlink ? 'f' : 'sf';
         const command = `${linkRule.umask ? 'umask ' + linkRule.umask + ' && ' : ''}mkdir -p $'${linkFilePath}' && ln -${linkMode} $'${targetFile}' $'${linkFile}'`;
         logger.binge(this.alias, '执行链接命令', command);
         try {
-          await global.runningServer[linkRule.server].run(command);
-          global.linkMapping[torrent.hash].push(linkRule.server + '####' + linkFile);
+          if (linkRule.local) {
+            await util.exec(command, { shell: '/bin/bash' });
+          } else {
+            await global.runningServer[linkRule.server].run(command);
+          }
+          global.linkMapping[torrent.hash].push((linkRule.server || '$local$') + '####' + linkFile);
         } catch (e) {
           logger.error(e);
           isError = true;
@@ -696,22 +718,27 @@ class Douban {
             suffixKeys.push(key);
           }
         }
-        const suffix = suffixKeys[0] ? '-' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
+        const suffix = suffixKeys[0] ? '.' + suffixKeys.filter(key => !suffixKeys.some(item => item.indexOf(key) !== -1 && item !== key)).join('.') : '';
         let group = '';
         if (linkRule.group) {
           group = (filename.match(/[-￡][^-￡]*?$/) || [''])[0].replace(/[-￡]/, '-');
         }
         const fileExt = path.extname(filename);
+        file.name = file.name.replace(/\\/g, '/');
         group = group.replace(fileExt, '');
         const linkFilePath = path.join(linkRule.linkFilePath, category.libraryPath, `${movieName}${year}`).replace(/'/g, '\\\'');
-        const linkFile = path.join(linkFilePath, `${movieName}${year}${suffix + group}${fileExt}`).replace(/'/g, '\\\'');
+        const linkFile = path.join(linkFilePath, `${movieName}${year}${suffix + group}${fileExt}`.replace(/'/g, '\\\''));
         const targetFile = path.join(torrent.savePath.replace(linkRule.targetPath.split('##')[0], linkRule.targetPath.split('##')[1]), file.name).replace(/'/g, '\\\'');
         const linkMode = linkRule.hardlink ? 'f' : 'sf';
         const command = `${linkRule.umask ? 'umask ' + linkRule.umask + ' && ' : ''}mkdir -p $'${linkFilePath}' && ln -${linkMode} $'${targetFile}' $'${linkFile}'`;
         logger.binge(this.alias, '执行链接命令', command);
         try {
-          await global.runningServer[linkRule.server].run(command);
-          global.linkMapping[torrent.hash].push(linkRule.server + '####' + linkFile);
+          if (linkRule.local) {
+            await util.exec(command, { shell: '/bin/bash' });
+          } else {
+            await global.runningServer[linkRule.server].run(command);
+          }
+          global.linkMapping[torrent.hash].push((linkRule.server || '$local$') + '####' + linkFile);
         } catch (e) {
           logger.error(e);
           isError = true;
@@ -763,6 +790,9 @@ class Douban {
       remote ? logger.advanced(...args) : logger.binge(...args);
     };
     const wish = { ..._wish };
+    if (!this.categories[wish.tag]) {
+      throw new Error(`**** 追剧任务: ${wish.name} 所在的标签: ${wish.tag} 已不存在, 请注意同步修改该任务标签`);
+    }
     wish.doubanId = this.id;
     const searchKey = (wish.searchKey || wish.name.split('/')[0]).replace(/[!\uff01\uff1a.。:?？，,·・]/g, ' ').replace(/([^\d]?)([\d一二三四五六七八九十]+)([^\d])/g, '$1 $2 $3').replace(/([^\d])([\d一二三四五六七八九十]+)([^\d]?)/g, '$1 $2 $3').replace(/ +/g, ' ').trim();
     if (!wish.imdb && imdb) {
@@ -832,7 +862,19 @@ class Douban {
     let episodeList = [];
     let maxEpisode = 0;
     if (wish.episodes) {
-      episodeList = Array.from(new Set(torrents.map(item => this.scrapeEpisode(item.subtitle)).flat()));
+      episodeList = Array.from(new Set(torrents.map(item => {
+        let _subtitle = item.subtitle;
+        if (wish.removeKeyword) {
+          wish.removeKeyword.split(',').forEach((item) => { _subtitle = _subtitle.replace(new RegExp(item, 'gi'), ''); });
+        }
+        let episodes = [];
+        if (item.site === 'MikanProject') {
+          episodes = [util.scrapeEpisodeByFilename(_subtitle)];
+        } else {
+          episodes = this.scrapeEpisode(_subtitle);
+        }
+        return episodes;
+      }).flat()));
       maxEpisode = Math.max(...episodeList);
     }
     let matched = false;
@@ -921,9 +963,13 @@ class Douban {
             if (wish.episodes) {
               let _subtitle = torrent.subtitle;
               if (wish.removeKeyword) {
-                _subtitle = torrent.subtitle.replace(new RegExp(wish.removeKeyword), '');
+                wish.removeKeyword.split(',').forEach((item) => { _subtitle = _subtitle.replace(new RegExp(item, 'gi'), ''); });
               }
-              episodes = this.scrapeEpisode(_subtitle);
+              if (torrent.site === 'MikanProject') {
+                episodes = [util.scrapeEpisodeByFilename(_subtitle)];
+              } else {
+                episodes = this.scrapeEpisode(_subtitle);
+              }
               episodes = episodes.filter(item => +item <= wish.episodes).map(item => +item);
               episodes = [...new Set(episodes)];
               logdebug(this.alias, '选种规则', rulesName, '种子', `[${torrent.site}]`, torrent.title, '/', torrent.subtitle, '识别到分集', episodes, '已完成至', wish.episodeNow);
@@ -1005,7 +1051,7 @@ class Douban {
       this.refreshWishList();
       break;
     case 'refreshWish':
-      const wishes = this.wishes.filter(item => item.name.indexOf(options.key) !== -1);
+      const wishes = this.wishes.filter(item => item.name.indexOf(options.key) !== -1 || item.id === options.key);
       for (const wish of wishes) {
         await this.refreshWish(wish.id, true);
       }
@@ -1048,16 +1094,16 @@ class Douban {
   }
 
   async search (key) {
-    const json = await this._getJson('https://movie.douban.com/j/subject_suggest?q=' + encodeURIComponent(key));
+    const json = await this._getJson('https://www.douban.com/j/search_suggest?debug=true&q=' + encodeURIComponent(key));
     const result = [];
-    for (const detail of json) {
+    for (const detail of json.cards.filter(item => item.url?.indexOf('movie') !== -1)) {
       const item = {};
       item.doubanId = this.id;
       item.title = detail.title;
-      item.subtitle = detail.sub_title;
+      item.subtitle = detail.card_subtitle;
       item.link = detail.url;
-      item.poster = detail.img?.replace(/img\d/, 'img9').replace('s_ratio', 'l_ratio').replace('webp', 'jpg');
-      item.id = detail.id;
+      item.poster = detail.cover_url?.replace(/img\d/, 'img9').replace('s_ratio', 'l_ratio').replace('webp', 'jpg');
+      item.id = detail.url.match(/\/(\d+)\//)[1];
       item.type = detail.type;
       item.year = detail.year;
       result.push(item);
